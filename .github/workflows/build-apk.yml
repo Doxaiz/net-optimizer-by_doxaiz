@@ -25,10 +25,7 @@ jobs:
           set -o pipefail
           if ! gradle --no-daemon --console plain assembleRelease > build-output.log 2>&1; then
             tail -100 build-output.log
-            while IFS= read -r line; do
-              line=${line//'%'/'%25'}
-              printf '::error::%s\n' "$line"
-            done < <(tail -80 build-output.log)
+            python3 -c "from pathlib import Path; s=Path('build-output.log').read_text(errors='replace')[-12000:]; print('::error::' + s.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))"
             exit 1
           fi
           cat build-output.log
