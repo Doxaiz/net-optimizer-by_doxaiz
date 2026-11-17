@@ -27,9 +27,9 @@ object PingCatalog {
         PingTarget("Mobile Legends", "m.mobilelegends.com", 443, "мобильная игра"),
         PingTarget("Brawl Stars", "supercell.com", 443, "мобильная игра"),
         PingTarget("Counter-Strike 2", "store.steampowered.com", 443, "ПК-игра · для USB-модема"),
-        PingTarget("Dota 2", "store.steampowered.com", 443, "ПК-игра · EU East"),
-        PingTarget("Valorant", "playvalorant.com", 443, "ПК-игра · Frankfurt"),
-        PingTarget("Мир Танков", "worldoftanks.ru", 443, "ПК-игра · RU"),
+        PingTarget("Dota 2", "store.steampowered.com", 443, "сайт Steam"),
+        PingTarget("Valorant", "playvalorant.com", 443, "сайт игры"),
+        PingTarget("Мир Танков", "worldoftanks.ru", 443, "сайт игры"),
         PingTarget("Telegram", "telegram.org", 443, "мессенджер"),
         PingTarget("Яндекс", "yandex.ru", 443, "сервис РФ")
     )

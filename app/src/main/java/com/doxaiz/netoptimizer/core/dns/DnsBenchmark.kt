@@ -16,7 +16,7 @@ data class DnsServer(val name: String, val ip: String, val hint: String, val ms:
 
 object DnsCatalog {
     val servers = listOf(
-        DnsServer("Яндекс DNS", "77.88.8.8", "Оптимум по РФ и Уралу"),
+        DnsServer("Яндекс DNS", "77.88.8.8", "Публичный DNS"),
         DnsServer("Cloudflare 1.1.1.1", "1.1.1.1", "DoH/DoT · шифрованный"),
         DnsServer("AdGuard DNS", "94.140.14.14", "+ анти-реклама"),
         DnsServer("Google Public DNS", "8.8.8.8", "DoH/DoT"),
@@ -52,26 +52,22 @@ class DnsBenchmark(private val context: android.content.Context) {
         return try {
             network.bindSocket(socket)
             socket.soTimeout = 1500
-            val query = buildDnsQuery(randomDomain())
+            val query = buildDnsQuery("example.com")
             socket.connect(InetSocketAddress(ip, 53))
             val start = System.nanoTime()
             socket.send(DatagramPacket(query, query.size, InetSocketAddress(ip, 53)))
             val buf = ByteArray(512)
             val response = DatagramPacket(buf, buf.size)
             socket.receive(response)
-            if (response.length < 12 || buf[0] != query[0] || buf[1] != query[1] || (buf[2].toInt() and 0x80) == 0) return -1
+            if (response.length < 12 || buf[0] != query[0] || buf[1] != query[1] ||
+                (buf[2].toInt() and 0x80) == 0 || (buf[2].toInt() and 0x02) != 0 ||
+                (buf[3].toInt() and 0x0f) != 0 || (buf[6].toInt() == 0 && buf[7].toInt() == 0)) return -1
             ((System.nanoTime() - start) / 1_000_000).toInt()
         } catch (_: Exception) {
             -1
         } finally {
             socket.close()
         }
-    }
-
-    private fun randomDomain(): String {
-        val rnd = Random()
-        val tlds = listOf("ru", "com", "net", "org", "io")
-        return "d${rnd.nextInt(1_000_000)}.${tlds[rnd.nextInt(tlds.size)]}"
     }
 
     /** Минимальный DNS-запрос A-записи */

@@ -2,6 +2,8 @@ package com.doxaiz.netoptimizer.ui.settings
 
 import android.content.Intent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,7 +50,7 @@ fun SettingsScreen(
                 Column(Modifier.padding(14.dp)) {
                     Text("Оформление", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DoxaizThemeKind.entries.forEach { kind ->
                             FilterChip(
                                 selected = theme == kind,
@@ -114,32 +116,6 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        val json = """{"app":"Net Optimizer by Doxaiz","version":"1.1.1","theme":"$theme"}"""
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, json)
-                            putExtra(Intent.EXTRA_SUBJECT, "doxaiz_settings.json")
-                        }
-                        context.startActivity(Intent.createChooser(intent, "Сохранить настройки"))
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("💾 Бэкап в файл") }
-                OutlinedButton(
-                    onClick = {
-                        try {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/doxaiz/net-optimizer/releases"))
-                            )
-                        } catch (_: Exception) { }
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("⬆ Обновления") }
             }
         }
         item {

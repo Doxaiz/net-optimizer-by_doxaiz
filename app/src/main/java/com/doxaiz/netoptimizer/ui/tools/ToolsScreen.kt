@@ -168,47 +168,6 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 }
             }
         }
-        // Лог DNS-запросов (P2: идея из RethinkDNS)
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Лог DNS-запросов", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { DnsLog.clear() }) { Text("Очистить") }
-                    }
-                    Text(
-                        "Заблокировано трекеров: $dnsBlocked",
-                        color = AccentGreen,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    if (dnsEntries.isEmpty()) {
-                        Text(
-                            "VPN и журнал DNS временно отключены до безопасной реализации.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        dnsEntries.take(15).forEach { e ->
-                            Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                                val company = DnsLog.companyOf(e.domain)
-                                Text(
-                                    (if (e.blocked) "🚫 " else "🌐 ") + e.domain + (if (company != null) " · $company" else ""),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (e.blocked) AccentRed else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(e.timestamp)),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
         // Спидтест
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -340,6 +299,7 @@ private fun RadarCanvas(rsrp: Int, soundOn: Boolean = true, vibOn: Boolean = fal
     }
     // Цвет центрального маркера зависит от силы сигнала (RSRP)
     val centerColor = when {
+        rsrp !in -160..-30 -> Color.Gray
         rsrp >= -80 -> AccentGreen
         rsrp >= -95 -> AccentCyan
         rsrp >= -105 -> Color(0xFFFFB020)
