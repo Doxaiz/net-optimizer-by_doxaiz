@@ -1,17 +1,14 @@
 package com.doxaiz.netoptimizer.ui.settings
 
-import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.doxaiz.netoptimizer.core.overlay.OverlayService
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import com.doxaiz.netoptimizer.core.util.ThemePrefs
 import com.doxaiz.netoptimizer.ui.theme.DoxaizThemeKind
@@ -24,7 +21,6 @@ fun SettingsScreen(
     val context = LocalContext.current
     var theme by remember { mutableStateOf(ThemePrefs.load(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
-    val scope = rememberCoroutineScope()
 
     // Слушаем изменения статуса Shizuku (запуск, разрешение)
     DisposableEffect(Unit) {
@@ -72,45 +68,47 @@ fun SettingsScreen(
                 Column(Modifier.padding(14.dp)) {
                     Text("Фоновые функции", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Автосценарии и оверлей пока недоступны. Приложение не отправляет push-уведомления.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Доступ к системе · Shizuku", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        when (shizukuStatus) {
+                            ShizukuManager.Status.READY -> "Shizuku подключён. Доступность действий зависит от устройства и разрешений."
+                            ShizukuManager.Status.NO_PERMISSION -> "⚠️ Shizuku запущен — нажмите «Разрешить»."
+                            ShizukuManager.Status.NOT_RUNNING -> "⚠️ Установите и запустите Shizuku (инструкция ниже)"
+                            ShizukuManager.Status.NOT_INSTALLED -> "Shizuku не подключён; доступны только функции без привилегий."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(Modifier.height(8.dp))
-                    // Карточка статуса Shizuku
-                    Column(Modifier.padding(vertical = 6.dp)) {
-                        Text("Shizuku / Root", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        when (shizukuStatus) {
+                            ShizukuManager.Status.NOT_INSTALLED -> {
+                                Button(onClick = { ShizukuManager.openShizukuStore(context) }) { Text("📥 Установить Shizuku") }
+                            }
+                            ShizukuManager.Status.NOT_RUNNING -> {
+                                OutlinedButton(onClick = { ShizukuManager.openShizukuStore(context) }) { Text("📥 Открыть Shizuku") }
+                            }
+                            ShizukuManager.Status.NO_PERMISSION -> {
+                                Button(onClick = { ShizukuManager.requestPermission() }) { Text("🔓 Разрешить Shizuku") }
+                            }
+                            ShizukuManager.Status.READY -> {
+                                Text("✅ Активен", color = com.doxaiz.netoptimizer.ui.theme.AccentGreen)
+                            }
+                        }
+                    }
+                    if (shizukuStatus != ShizukuManager.Status.READY) {
+                        Spacer(Modifier.height(6.dp))
                         Text(
-                            when (shizukuStatus) {
-                                ShizukuManager.Status.READY -> "Shizuku подключён. Доступность действий зависит от устройства и разрешений."
-                                ShizukuManager.Status.NO_PERMISSION -> "⚠️ Shizuku запущен — нажмите «Разрешить»."
-                                ShizukuManager.Status.NOT_RUNNING -> "⚠️ Установите и запустите Shizuku (инструкция ниже)"
-                                ShizukuManager.Status.NOT_INSTALLED -> "Shizuku не подключён; доступны только функции без привилегий."
-                            },
+                            "Как установить: 1) Скачайте Shizuku из Play Market или GitHub. 2) Запустите его и следуйте инструкции (для Infinix XOS — через беспроводную отладку). 3) Вернитесь сюда и нажмите «Разрешить».",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            when (shizukuStatus) {
-                                ShizukuManager.Status.NOT_INSTALLED -> {
-                                    Button(onClick = { ShizukuManager.openShizukuStore(context) }) { Text("📥 Установить Shizuku") }
-                                }
-                                ShizukuManager.Status.NOT_RUNNING -> {
-                                    OutlinedButton(onClick = { ShizukuManager.openShizukuStore(context) }) { Text("📥 Открыть Shizuku") }
-                                }
-                                ShizukuManager.Status.NO_PERMISSION -> {
-                                    Button(onClick = { ShizukuManager.requestPermission() }) { Text("🔓 Разрешить Shizuku") }
-                                }
-                                ShizukuManager.Status.READY -> {
-                                    Text("✅ Активен", color = com.doxaiz.netoptimizer.ui.theme.AccentGreen)
-                                }
-                            }
-                        }
-                        if (shizukuStatus != ShizukuManager.Status.READY) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "Как установить: 1) Скачайте Shizuku из Play Market или GitHub. 2) Запустите его и следуйте инструкции (для Infinix XOS — через беспроводную отладку). 3) Вернитесь сюда и нажмите «Разрешить».",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
                 }
             }
@@ -125,16 +123,5 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-    }
-}
-
-@Composable
-private fun SettingRow(title: String, sub: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.padding(vertical = 6.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text(title)
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = value, onCheckedChange = onChange)
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val sessions by repo.observeAll().collectAsState(initial = emptyList())
     val signal by monitor.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
     var active by remember { mutableStateOf(false) }
     var start by remember { mutableLongStateOf(0L) }
     var seconds by remember { mutableLongStateOf(0L) }
@@ -59,7 +61,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
         }
     }
 
-    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("СЕССИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("История соединения", style = MaterialTheme.typography.headlineSmall)
@@ -99,21 +101,6 @@ fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 }
             }
         }
-        item { Text("ИСТОРИЯ · ВЫБЕРИТЕ ДВЕ ДЛЯ СРАВНЕНИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (sessions.isEmpty()) item { Text("Сохранённых сессий пока нет.", style = MaterialTheme.typography.bodyMedium) }
-        items(sessions, key = { it.id }) { s ->
-            val isSelected = s.id in selected
-            Card(Modifier.fillMaxWidth().clickable {
-                detailId = s.id
-                selected = if (isSelected) selected - s.id else (selected + s.id).takeLast(2)
-            }, colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(s.name + if (s.pinned) " · Закреплено" else "", style = MaterialTheme.typography.titleMedium)
-                    Text("${SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(s.timestamp))} · ${s.durationSec / 60} мин · ${s.operator}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("TCP-задержка: ${s.avgPingMs} мс", color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
         if (selected.size == 2) item {
             val a = sessions.firstOrNull { it.id == selected[0] }
             val b = sessions.firstOrNull { it.id == selected[1] }
@@ -134,6 +121,22 @@ fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         OutlinedButton(onClick = { scope.launch { repo.setPinned(detail.id, !detail.pinned) } }, modifier = Modifier.weight(1f)) { Text(if (detail.pinned) "Открепить" else "Закрепить") }
                         OutlinedButton(onClick = { scope.launch { repo.delete(detail.id); selected = selected - detail.id; detailId = null } }, modifier = Modifier.weight(1f)) { Text("Удалить") }
                     }
+                }
+            }
+        }
+        item { Text("ИСТОРИЯ · ВЫБЕРИТЕ ДВЕ ДЛЯ СРАВНЕНИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (sessions.isEmpty()) item { Text("Сохранённых сессий пока нет.", style = MaterialTheme.typography.bodyMedium) }
+        items(sessions, key = { it.id }) { s ->
+            val isSelected = s.id in selected
+            Card(Modifier.fillMaxWidth().clickable {
+                detailId = s.id
+                selected = if (isSelected) selected - s.id else (selected + s.id).takeLast(2)
+                scope.launch { listState.animateScrollToItem(2) }
+            }, colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(s.name + if (s.pinned) " · Закреплено" else "", style = MaterialTheme.typography.titleMedium)
+                    Text("${SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(s.timestamp))} · ${s.durationSec / 60} мин · ${s.operator}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("TCP-задержка: ${s.avgPingMs} мс", color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
