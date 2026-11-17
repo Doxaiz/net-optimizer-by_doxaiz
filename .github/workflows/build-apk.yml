@@ -35,34 +35,3 @@ jobs:
           name: NetOptimizer-by-Doxaiz-release
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
-
-  publish-v1-1-1:
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Build and publish v1.1.1 prerelease')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: NetOptimizer-by-Doxaiz-release
-          path: release-apk
-      - name: Publish prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_SHA: ${{ github.sha }}
-        run: |
-          cat > release-notes.md <<'NOTES'
-          Тестовая сборка Android 1.1.1 (versionCode 11). Подписанный release APK.
-
-          - Обновлены экраны и замеры мобильной сети; добавлена локальная диагностика сбоев.
-          - Установка и запуск на Infinix Hot 50 ещё не подтверждены.
-          - VPN, подключение DNS, блокировка приложений, автопилот, оверлей и принудительное переключение 4G/5G временно недоступны.
-          - Keep-Alive и ручная сессия работают только на соответствующем экране. Изменение пинга не гарантировано.
-
-          Скачайте `app-release.apk` и установите его на Android 12 или новее.
-          NOTES
-          gh release create v1.1.1 release-apk/app-release.apk \
-            --target "$RELEASE_SHA" --title 'Net Optimizer by Doxaiz 1.1.1 — тестовая сборка' \
-            --prerelease --notes-file release-notes.md
