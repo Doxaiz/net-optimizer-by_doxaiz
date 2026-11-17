@@ -5,19 +5,24 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.net.Socket
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /** Цель для пинг-теста: игра, сервис или свой IP/домен */
 data class PingTarget(val name: String, val host: String, val port: Int, val hint: String)
 
+enum class PingStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, RESOLUTION_FAILED }
+
 data class PingResult(
     val target: PingTarget,
     val avgMs: Int,
-    val jitterMs: Int,
-    val lossPercent: Int,
-    val ok: Boolean
+    val jitterMs: Int, // -1: fewer than two successful connections
+    val lossPercent: Int, // failed TCP attempts, -1 when no measurement was made
+    val ok: Boolean,
+    val attemptsMade: Int,
+    val successfulAttempts: Int,
+    val status: PingStatus
 )
 
 object PingCatalog {
@@ -43,21 +48,25 @@ class PingTester(private val context: android.content.Context) {
 
     suspend fun test(target: PingTarget, attempts: Int = 6): PingResult =
         withContext(Dispatchers.IO) {
+            require(attempts > 0) { "attempts must be positive" }
             val network = CellularNetwork.active(context)
-                ?: return@withContext PingResult(target, -1, 0, 100, false)
-            val times = mutableListOf<Int>()
-            var failed = 0
+                ?: return@withContext result(target, emptyList(), PingStatus.NO_CELLULAR)
+            val address = try { network.getAllByName(target.host).firstOrNull() } catch (_: Exception) { null }
+            currentCoroutineContext().ensureActive()
+            if (CellularNetwork.active(context) != network) {
+                return@withContext result(target, emptyList(), PingStatus.NETWORK_CHANGED)
+            }
+            if (address == null) return@withContext result(target, emptyList(), PingStatus.RESOLUTION_FAILED)
+            val samples = mutableListOf<Int>()
             repeat(attempts) {
-                val t = connectOnce(network, target.host, target.port)
-                if (t >= 0) times += t else failed++
+                currentCoroutineContext().ensureActive()
+                if (CellularNetwork.active(context) != network) {
+                    return@withContext result(target, samples, PingStatus.NETWORK_CHANGED)
+                }
+                samples += connectOnce(network, address, target.port)
             }
-            val avg = if (times.isEmpty()) -1 else times.average().roundToInt()
-            val jitter = if (times.size < 2) 0 else {
-                val diffs = times.zipWithNext { a, b -> abs(a - b) }
-                diffs.average().roundToInt()
-            }
-            val loss = (failed * 100 / attempts)
-            PingResult(target, avg, jitter, loss, avg in 1..150 && loss == 0)
+            val status = if (CellularNetwork.active(context) == network) PingStatus.COMPLETED else PingStatus.NETWORK_CHANGED
+            result(target, samples, status)
         }
 
     /** Параллельный тест всех целей (быстро даже на плохой сети) */
@@ -67,10 +76,20 @@ class PingTester(private val context: android.content.Context) {
         }.awaitAll().toMap()
     }
 
-    private fun connectOnce(network: android.net.Network, host: String, port: Int): Int {
+    private fun result(target: PingTarget, samples: List<Int>, status: PingStatus): PingResult {
+        val summary = TcpProbeSummary.from(samples)
+        // Measurements from interrupted network transitions must not be presented as a complete test.
+        return PingResult(target,
+            if (status == PingStatus.COMPLETED) summary.averageMs else -1,
+            if (status == PingStatus.COMPLETED) summary.jitterMs else -1,
+            if (status == PingStatus.COMPLETED) summary.failedPercent else -1,
+            status == PingStatus.COMPLETED && summary.averageMs in 0..150 && summary.failedPercent == 0,
+            summary.attempts, summary.successes, status)
+    }
+
+    private fun connectOnce(network: android.net.Network, address: java.net.InetAddress, port: Int): Int {
         val socket = Socket()
         return try {
-            val address = network.getAllByName(host).first()
             network.bindSocket(socket)
             val start = System.nanoTime()
             socket.connect(java.net.InetSocketAddress(address, port), 2500)

@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.cellular.CarrierProfiles
@@ -38,6 +40,8 @@ import com.doxaiz.netoptimizer.core.util.Beeper
 import com.doxaiz.netoptimizer.core.dns.DnsLog
 import com.doxaiz.netoptimizer.core.dns.DnsCatalog
 import com.doxaiz.netoptimizer.core.dns.DnsServer
+import com.doxaiz.netoptimizer.core.net.CustomTarget
+import com.doxaiz.netoptimizer.core.net.PingStatus
 import com.doxaiz.netoptimizer.core.net.PingCatalog
 import com.doxaiz.netoptimizer.core.net.PingResult
 import com.doxaiz.netoptimizer.core.net.PingTarget
@@ -76,6 +80,11 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var benching by remember { mutableStateOf(false) }
     var pingResults by remember { mutableStateOf<Map<String, PingResult>>(emptyMap()) }
     var pingTesting by remember { mutableStateOf(false) }
+    var customHost by rememberSaveable { mutableStateOf("") }
+    var customPort by rememberSaveable { mutableStateOf("443") }
+    var customError by remember { mutableStateOf<String?>(null) }
+    var customResult by remember { mutableStateOf<PingResult?>(null) }
+    var customTesting by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf<SpeedResult?>(null) }
     var speedTesting by remember { mutableStateOf(false) }
     var scenarios by remember { mutableStateOf<List<ScenarioVerdict>?>(null) }
@@ -217,6 +226,45 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     }
                 }
             }
+            if (section == ToolsSection.TESTS) item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Своя цель", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Укажите IP-адрес или домен и открытый TCP-порт. Адрес без https:// и пути.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedTextField(
+                            value = customHost, onValueChange = { customHost = it.take(253); customResult = null; customError = null },
+                            label = { Text("IP или домен") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            isError = customError != null, enabled = !customTesting, modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = customPort, onValueChange = { customPort = it.take(5); customResult = null; customError = null },
+                            label = { Text("TCP-порт") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            isError = customError != null, enabled = !customTesting, modifier = Modifier.fillMaxWidth()
+                        )
+                        if (customError != null) Text(customError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = {
+                            val target = CustomTarget.parse(customHost, customPort)
+                            if (target == null) {
+                                customResult = null
+                                customError = "Проверьте IP или домен и порт от 1 до 65535."
+                            } else {
+                                customError = null
+                                customResult = null
+                                customTesting = true
+                                scope.launch {
+                                    try { customResult = pingTester.test(target) }
+                                    finally { customTesting = false }
+                                }
+                            }
+                        }, enabled = !customTesting && !pingTesting, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (customTesting) "⏳ Проверяю…" else "▶ Проверить свою цель")
+                        }
+                        customResult?.let { PingDetails(it) }
+                    }
+                }
+            }
             // Пинг игр
             if (section == ToolsSection.TESTS) item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -230,15 +278,18 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                                     Text(t.name)
                                     Text(t.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Text(
-                                    r?.takeIf { it.avgMs >= 0 }?.let { "${it.avgMs} мс · ±${it.jitterMs}" } ?: "—",
-                                    color = when {
-                                        r == null || r.avgMs < 0 -> Color.Gray
-                                        r.avgMs <= 50 -> AccentGreen
-                                        r.avgMs <= 100 -> AccentCyan
-                                        else -> AccentRed
-                                    }
-                                )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        r?.takeIf { it.avgMs >= 0 }?.let { "${it.avgMs} мс" } ?: "—",
+                                        color = when {
+                                            r == null || r.avgMs < 0 -> Color.Gray
+                                            r.avgMs <= 50 -> AccentGreen
+                                            r.avgMs <= 100 -> AccentCyan
+                                            else -> AccentRed
+                                        }
+                                    )
+                                    if (r != null) Text(probeShortDescription(r), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                         Spacer(Modifier.height(8.dp))
@@ -250,9 +301,10 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                                     pingTesting = false
                                 }
                             },
-                            enabled = !pingTesting,
+                            enabled = !pingTesting && !customTesting,
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text(if (pingTesting) "⏳ Тестирую…" else "▶ Запустить тест пинга") }
+                        ) { Text(if (pingTesting) "⏳ Тестирую…" else "▶ Проверить сайты") }
+                        Text("Неудачные TCP-подключения не равны потере пакетов. Данные относятся к сайтам, а не к игровым серверам.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -283,6 +335,39 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     }
                 }
             }
+        }
+    }
+}
+
+private fun probeShortDescription(result: PingResult): String = when (result.status) {
+    PingStatus.NO_CELLULAR -> "Нет мобильной сети"
+    PingStatus.NETWORK_CHANGED -> "Сеть изменилась"
+    PingStatus.RESOLUTION_FAILED -> "Адрес не найден"
+    PingStatus.COMPLETED -> {
+        val failed = result.attemptsMade - result.successfulAttempts
+        val jitter = if (result.jitterMs >= 0) "±${result.jitterMs} мс · " else ""
+        "$jitter$failed/${result.attemptsMade} неудач"
+    }
+}
+
+@Composable
+private fun PingDetails(result: PingResult) {
+    when (result.status) {
+        PingStatus.NO_CELLULAR -> Text("Мобильное подключение не найдено. Проверьте сеть и повторите замер.", color = MaterialTheme.colorScheme.error)
+        PingStatus.NETWORK_CHANGED -> Text("Сеть изменилась во время замера. Повторите проверку.", color = MaterialTheme.colorScheme.error)
+        PingStatus.RESOLUTION_FAILED -> Text("Не удалось определить IP-адрес цели через мобильную сеть. Проверьте адрес и повторите попытку.", color = MaterialTheme.colorScheme.error)
+        PingStatus.COMPLETED -> {
+            val failed = result.attemptsMade - result.successfulAttempts
+            val latencyColor = when {
+                result.avgMs < 0 -> MaterialTheme.colorScheme.error
+                result.avgMs <= 50 -> AccentGreen
+                result.avgMs <= 100 -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.error
+            }
+            Text(if (result.avgMs >= 0) "TCP-задержка: ${result.avgMs} мс" else "Подключиться не удалось", style = MaterialTheme.typography.titleMedium, color = latencyColor)
+            Text(if (result.jitterMs >= 0) "Джиттер: ${result.jitterMs} мс · разброс между успешными попытками" else "Джиттер: недостаточно успешных попыток", style = MaterialTheme.typography.bodySmall)
+            Text("Неудачные подключения: $failed из ${result.attemptsMade} (${result.lossPercent}%). Это не потери пакетов.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (failed > 0) Text("Проверьте адрес и открытый TCP-порт: отказ может быть связан с сервером, а не качеством сети.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

@@ -54,7 +54,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 seconds = (SystemClock.elapsedRealtime() - start) / 1000
                 val result = tester.test(PingTarget("Яндекс", "yandex.ru", 443, ""))
                 if (result.avgMs >= 0) history = (history + result.avgMs).takeLast(120)
-                losses = (losses + result.lossPercent).takeLast(120)
+                if (result.lossPercent >= 0) losses = (losses + result.lossPercent).takeLast(120)
                 seconds = (SystemClock.elapsedRealtime() - start) / 1000
                 delay(5000)
             }

@@ -82,7 +82,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 val after = tester.test(target)
                 val sameNetwork = CellularNetwork.active(context) == network
                 ping = after.avgMs.takeIf { it >= 0 && sameNetwork }
-                jitter = after.jitterMs.takeIf { ping != null }
+                jitter = after.jitterMs.takeIf { ping != null && it >= 0 }
                 if (before.avgMs >= 0 && after.avgMs >= 0 && sameNetwork) {
                     comparison = before.avgMs to after.avgMs
                     lines += "Измерена TCP-задержка до Яндекса. Разница может быть случайной и не равна пингу игры."
@@ -131,7 +131,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("ПИНГ · TCP", ping?.let { "$it мс" } ?: "—", ping?.let { QualityText.ping(it) + " · джиттер ${jitter ?: 0} мс" } ?: "Нет замера", Modifier.weight(1f), ping?.let { if (it <= 70) AccentGreen else MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                MetricCard("ПИНГ · TCP", ping?.let { "$it мс" } ?: "—", ping?.let { QualityText.ping(it) + (jitter?.let { value -> " · джиттер $value мс" } ?: " · джиттер недоступен") } ?: "Нет замера", Modifier.weight(1f), ping?.let { if (it <= 70) AccentGreen else MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
                 MetricCard("СИГНАЛ · RSRP", if (validSignal) "${signal.rsrp} dBm" else "—", if (validSignal) QualityText.signal(signal.rsrp) else "Нет данных о соте", Modifier.weight(1f), if (validSignal && signal.rsrp >= -100) AccentGreen else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
