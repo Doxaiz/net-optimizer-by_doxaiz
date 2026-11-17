@@ -37,7 +37,7 @@ jobs:
           if-no-files-found: error
 
   publish-v1-1-1:
-    if: github.event_name == 'push' && github.event.head_commit.message == 'Build and publish v1.1.1 prerelease'
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Build and publish v1.1.1 prerelease')
     needs: build
     runs-on: ubuntu-latest
     permissions:
