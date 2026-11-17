@@ -38,6 +38,8 @@ class SessionDraftCodecTest {
         assertFalse(SessionDraftCodec.isValid(value.copy(mode = "неизвестен")))
         assertFalse(SessionDraftCodec.isValid(value.copy(progress = value.progress.resume(9_000))))
         assertFalse(SessionDraftCodec.isValid(value.copy(progress = value.progress.copy(failures = 100))))
+        assertFalse(SessionDraftCodec.isValid(value.copy(progress = value.progress.copy(attempts = Long.MAX_VALUE))))
+        assertFalse(SessionDraftCodec.isValid(value.copy(progress = value.progress.copy(latencySum = Long.MAX_VALUE))))
         assertFalse(SessionDraftCodec.isValid(value.copy(progress = value.progress.copy(history = listOf(-4)))))
     }
 }

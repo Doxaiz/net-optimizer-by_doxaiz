@@ -59,10 +59,10 @@ object SessionDraftCodec {
     fun isValid(draft: SessionDraft): Boolean {
         val p = draft.progress
         if (draft.id >= 0 || draft.id == -1L || draft.startedAt <= 0 || draft.mode !in setOf("Обычный", "Игра", "USB-модем")) return false
-        if (p.segmentStartMs != null || p.elapsedMs < 0 || p.sampleCount < 0 || p.latencySum < 0 || p.attempts < 0 || p.failures !in 0..p.attempts) return false
+        if (p.segmentStartMs != null || p.elapsedMs < 0 || p.sampleCount < 0 || p.latencySum < 0 || p.attempts < 0 || p.attempts > Long.MAX_VALUE / 100 || p.failures !in 0..p.attempts) return false
         if (p.history.size != minOf(p.sampleCount, 120) || p.history.any { it < 0 } || p.attempts - p.failures < p.sampleCount.toLong()) return false
         if (p.sampleCount == 0) return p.latencySum == 0L && p.maxLatency == -1
-        if (p.maxLatency < 0 || p.history.any { it > p.maxLatency } || p.latencySum < p.maxLatency || p.latencySum < p.history.sumOf { it.toLong() }) return false
+        if (p.maxLatency < 0 || p.history.any { it > p.maxLatency } || p.latencySum < p.maxLatency || p.latencySum < p.history.sumOf { it.toLong() } || p.latencySum > p.sampleCount.toLong() * p.maxLatency) return false
         return true
     }
 }
