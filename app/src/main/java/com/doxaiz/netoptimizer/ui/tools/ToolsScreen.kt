@@ -30,6 +30,8 @@ import com.doxaiz.netoptimizer.core.cellular.NetworkMode
 import com.doxaiz.netoptimizer.core.cellular.NetworkModeApplier
 import com.doxaiz.netoptimizer.core.cellular.NetworkModePrefs
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
+import com.doxaiz.netoptimizer.core.cellular.SignalState
+import com.doxaiz.netoptimizer.core.cellular.RadioChannels
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
@@ -123,6 +125,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         Spacer(Modifier.height(8.dp))
                         RadarCanvas(rsrp = signal.rsrp, soundOn = soundOn, vibOn = vibOn)
                         Text(if (signal.rsrp in -160..-30) "${signal.rsrp} dBm" else "Нет данных о сигнале", style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.height(8.dp))
+                        CurrentCellDetails(signal)
                         if (signal.neighbors.isNotEmpty()) {
                             Text(
                                 "Соседние соты: " + signal.neighbors.joinToString(" · "),
@@ -335,6 +339,31 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CurrentCellDetails(signal: SignalState) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text("Текущая сота", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!signal.hasPermission) {
+            Text("Разрешите доступ к местоположению, чтобы увидеть данные соты.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text("${signal.operator} · ${signal.networkType}", style = MaterialTheme.typography.bodyMedium)
+            val source = when (signal.bandSource) {
+                RadioChannels.BandSource.DEVICE -> "данные телефона"
+                RadioChannels.BandSource.CHANNEL -> "расчёт по LTE-каналу"
+                null -> "нет данных"
+            }
+            Text("Диапазон: ${signal.band} · $source", style = MaterialTheme.typography.bodySmall)
+            val frequency = signal.frequencyKhz?.let { "%.3f МГц".format(java.util.Locale.getDefault(), it / 1000.0) } ?: "нет данных"
+            Text("Опорная частота: $frequency${if (signal.frequencyKhz != null) " · расчёт по каналу" else ""}", style = MaterialTheme.typography.bodySmall)
+            val channelName = if (signal.is5g) "NR-ARFCN" else "EARFCN"
+            Text("$channelName: ${signal.channel?.toString() ?: "—"} · PCI: ${signal.pci?.toString() ?: "—"}", style = MaterialTheme.typography.bodySmall)
+            Text("RSRQ: ${signal.rsrq?.let { "$it dB" } ?: "—"} · качество опорного сигнала", style = MaterialTheme.typography.bodySmall)
+            Text("SINR: ${signal.sinr?.let { "$it dB" } ?: "—"} · отношение сигнала к помехам", style = MaterialTheme.typography.bodySmall)
+            if (signal.bandHint.isNotEmpty()) Text(signal.bandHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

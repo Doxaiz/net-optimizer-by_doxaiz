@@ -23,11 +23,14 @@ data class SignalState(
     val operator: String = "—",
     val networkType: String = "—",
     val rsrp: Int = 0,          // dBm
-    val rsrq: Int = 0,          // dB
-    val sinr: Int = 0,          // dB
+    val rsrq: Int? = null,      // dB; null means unavailable
+    val sinr: Int? = null,      // dB; null means unavailable
     val band: String = "—",
     val bandHint: String = "",
-    val pci: Int = 0,
+    val bandSource: RadioChannels.BandSource? = null,
+    val channel: Int? = null,
+    val frequencyKhz: Int? = null,
+    val pci: Int? = null,
     val is5g: Boolean = false,
     val isLteA: Boolean = false,
     val neighbors: List<String> = emptyList(), // соседние соты: "PCI 123 · B3"
@@ -102,21 +105,30 @@ class SignalMonitor(private val context: Context) {
         } catch (_: Exception) { }
     }
 
+    private fun clearCell(hasPermission: Boolean) {
+        _state.value = _state.value.copy(
+            hasPermission = hasPermission, rsrp = 0, rsrq = null, sinr = null,
+            band = "—", bandHint = "", bandSource = null, channel = null, frequencyKhz = null,
+            pci = null, networkType = "—", is5g = false, isLteA = false, neighbors = emptyList()
+        )
+    }
+
     private fun readCells() {
         if (!hasLocationPermission()) {
-            _state.value = _state.value.copy(hasPermission = false, rsrp = 0, rsrq = 0, sinr = 0, band = "—", networkType = "—")
+            clearCell(false)
             return
         }
         val cells: List<CellInfo> = try {
             telephony.allCellInfo ?: emptyList()
         } catch (_: SecurityException) {
-            _state.value = _state.value.copy(hasPermission = false)
-            emptyList()
+            clearCell(false)
+            return
         } catch (_: Exception) {
-            emptyList()
+            clearCell(true)
+            return
         }
         if (cells.none { it.isRegistered && (it.cellIdentity is CellIdentityLte || it.cellIdentity is CellIdentityNr) }) {
-            _state.value = _state.value.copy(rsrp = 0, rsrq = 0, sinr = 0, band = "—", networkType = "—", neighbors = emptyList())
+            clearCell(true)
             return
         }
         updateFromCells(cells)
@@ -124,14 +136,14 @@ class SignalMonitor(private val context: Context) {
 
     private fun updateFromCells(cells: List<CellInfo>) {
         val cur = _state.value
-
-        // Соседние соты (исключая активную): PCI + бэнд — видно, куда телефон может переключиться
         val neighborList = cells.filter { !it.isRegistered }.mapNotNull { info ->
-            when (val id = info.cellIdentity) {
-                is CellIdentityLte -> "PCI ${id.pci} · ${earfcnToBand(id.earfcn, false)}"
-                is CellIdentityNr -> "PCI ${id.pci} · ${earfcnToBand(id.nrarfcn, true)}"
+            val parts = when (val id = info.cellIdentity) {
+                is CellIdentityLte -> Pair(id.pci, RadioChannels.lte(id.earfcn, id.bands).band)
+                is CellIdentityNr -> Pair(id.pci, RadioChannels.nr(id.nrarfcn, id.bands).band)
                 else -> null
-            }
+            } ?: return@mapNotNull null
+            val pci = parts.first.takeIf { it >= 0 && it != Int.MAX_VALUE }
+            listOfNotNull(pci?.let { "PCI $it" }, parts.second.takeIf { it != "—" }).joinToString(" · ").ifEmpty { null }
         }.distinct().take(4)
 
         val nrInfo = cells.firstOrNull { it.isRegistered && it.cellIdentity is CellIdentityNr }
@@ -140,16 +152,15 @@ class SignalMonitor(private val context: Context) {
         if (nrInfo != null) {
             val id = nrInfo.cellIdentity as CellIdentityNr
             val s = nrInfo.cellSignalStrength as CellSignalStrengthNr
-            val band = earfcnToBand(id.nrarfcn, isNr = true)
+            val radio = RadioChannels.nr(id.nrarfcn, id.bands)
             _state.value = cur.copy(
-                rsrp = s.dbm.takeIf { it != Int.MAX_VALUE } ?: cur.rsrp,
-                band = band,
-                bandHint = CarrierProfiles.bandHint(band),
-                pci = id.pci,
-                is5g = true,
-                networkType = "5G",
-                neighbors = neighborList,
-                hasPermission = true
+                rsrp = s.dbm.takeIf { it in -160..-30 } ?: 0,
+                rsrq = s.ssRsrq.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
+                sinr = s.ssSinr.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
+                band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,
+                bandHint = if (radio.bandSource != null && !radio.band.contains(" / ")) CarrierProfiles.bandHint(radio.band) else "",
+                pci = id.pci.takeIf { it >= 0 && it != Int.MAX_VALUE },
+                is5g = true, isLteA = false, networkType = "5G", neighbors = neighborList, hasPermission = true
             )
             return
         }
@@ -157,57 +168,16 @@ class SignalMonitor(private val context: Context) {
         if (lteInfo != null) {
             val id = lteInfo.cellIdentity as CellIdentityLte
             val s = lteInfo.cellSignalStrength as CellSignalStrengthLte
-            val band = earfcnToBand(id.earfcn, isNr = false)
-            // Neighbouring LTE cells do not establish carrier aggregation.
-            val lteA = false
+            val radio = RadioChannels.lte(id.earfcn, id.bands)
             _state.value = cur.copy(
-                rsrp = s.rsrp.takeIf { it != Int.MAX_VALUE } ?: cur.rsrp,
-                rsrq = s.rsrq.takeIf { it != Int.MAX_VALUE } ?: cur.rsrq,
-                sinr = s.rssnr.takeIf { it != Int.MAX_VALUE } ?: cur.sinr,
-                band = band,
-                bandHint = CarrierProfiles.bandHint(band),
-                pci = id.pci,
-                isLteA = lteA,
-                is5g = false,
-                networkType = if (lteA) "4G+" else "4G",
-                neighbors = neighborList,
-                hasPermission = true
+                rsrp = s.rsrp.takeIf { it in -160..-30 } ?: 0,
+                rsrq = s.rsrq.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
+                sinr = s.rssnr.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
+                band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,
+                bandHint = if (radio.bandSource != null && !radio.band.contains(" / ")) CarrierProfiles.bandHint(radio.band) else "",
+                pci = id.pci.takeIf { it >= 0 && it != Int.MAX_VALUE },
+                isLteA = false, is5g = false, networkType = "4G", neighbors = neighborList, hasPermission = true
             )
-        }
-    }
-
-    /** Упрощённая таблица EARFCN -> Band (LTE + NR) */
-    private fun earfcnToBand(earfcn: Int, isNr: Boolean): String {
-        if (isNr) {
-            return when (earfcn) {
-                in 620000..627000 -> "n78"   // 3500 МГц
-                in 500000..510000 -> "n41"   // 2600 МГц
-                in 184000..190000 -> "n1"    // 2100 МГц
-                else -> "n$earfcn"
-            }
-        }
-        return when (earfcn) {
-            in 0..599 -> "B1"
-            in 600..1199 -> "B2"
-            in 1200..1949 -> "B3"
-            in 1950..2399 -> "B4"
-            in 2400..2649 -> "B5"
-            in 2750..3449 -> "B7"
-            in 3450..3799 -> "B8"
-            in 3800..4149 -> "B9"
-            in 6150..6449 -> "B12"
-            in 6600..7399 -> "B13"
-            in 7500..7699 -> "B14"
-            in 7700..8039 -> "B17"
-            in 8040..8689 -> "B18"
-            in 8690..9039 -> "B19"
-            in 9040..9399 -> "B20"
-            in 9750..9999 -> "B28"
-            in 37750..38249 -> "B38"
-            in 38250..38649 -> "B39"
-            in 38650..39649 -> "B40"
-            in 39650..41589 -> "B41"
-            else -> "B$earfcn"
         }
     }
 }
