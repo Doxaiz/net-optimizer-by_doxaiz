@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101A2E"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="12dp">
+
+    <TextView
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="Net Optimizer"
+        android:textColor="#8FA3C0"
+        android:textSize="11sp" />
+
+    <TextView
+        android:id="@+id/widget_speed"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="— Мбит/с"
+        android:textColor="#00E5FF"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_ping"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:text="Пинг: — мс"
+        android:textColor="#E8EEF7"
+        android:textSize="12sp" />
+
+</LinearLayout>
