@@ -29,7 +29,6 @@ fun OnboardingScreen(onDone: () -> Unit) {
     var mode by remember { mutableStateOf(WorkMode.NORMAL) }
     var permCell by remember { mutableStateOf(hasPerm(context, Manifest.permission.ACCESS_FINE_LOCATION)) }
     var permPhone by remember { mutableStateOf(hasPerm(context, Manifest.permission.READ_PHONE_STATE)) }
-    var permNotif by remember { mutableStateOf(hasPerm(context, Manifest.permission.POST_NOTIFICATIONS)) }
     var permUsage by remember { mutableStateOf(hasUsageAccess(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
 
@@ -38,7 +37,6 @@ fun OnboardingScreen(onDone: () -> Unit) {
     ) { result ->
         permCell = result[Manifest.permission.ACCESS_FINE_LOCATION] == true
         permPhone = result[Manifest.permission.READ_PHONE_STATE] == true
-        permNotif = result[Manifest.permission.POST_NOTIFICATIONS] == true
     }
 
     LazyColumn(
@@ -74,18 +72,6 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         sub = "Какие приложения едят интернет",
                         granted = permUsage,
                         onRequest = { openUsageAccess(context) }
-                    )
-                    PermissionRow(
-                        title = "Уведомления",
-                        sub = "Тихая строка скорости в шторке (без звука)",
-                        granted = permNotif,
-                        onRequest = {
-                            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                                launcher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
-                            } else {
-                                permNotif = true
-                            }
-                        }
                     )
                     PermissionRow(
                         title = "Работа в фоне без ограничений",

@@ -22,12 +22,6 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var theme by remember { mutableStateOf(ThemePrefs.load(context)) }
-    var hudOn by remember { mutableStateOf(false) }
-    var notifOn by remember { mutableStateOf(true) }
-    var tileOn by remember { mutableStateOf(true) }
-    var widgetOn by remember { mutableStateOf(false) }
-    var usbAuto by remember { mutableStateOf(true) }
-    var gameAuto by remember { mutableStateOf(true) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
     val scope = rememberCoroutineScope()
 
@@ -36,11 +30,6 @@ fun SettingsScreen(
         val listener = object : rikka.shizuku.Shizuku.OnBinderReceivedListener {
             override fun onBinderReceived() {
                 shizukuStatus = ShizukuManager.status()
-                // При получении разрешения — автоматически применяем режим сети
-                scope.launch {
-                    ShizukuManager.applySavedNetworkMode(context)
-                    shizukuStatus = ShizukuManager.status()
-                }
             }
         }
         ShizukuManager.addListener(listener)
@@ -82,44 +71,18 @@ fun SettingsScreen(
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
-                    Text("Поверх системы", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SettingRow("Тонкая строка пинга", "У верхнего края экрана, не мешает нажатиям", hudOn) {
-                        if (it && !android.provider.Settings.canDrawOverlays(context)) {
-                            // Нет разрешения — ведём в системные настройки
-                            try {
-                                context.startActivity(
-                                    android.content.Intent(
-                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        android.net.Uri.parse("package:${context.packageName}")
-                                    ).apply { flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK }
-                                )
-                            } catch (_: Exception) { }
-                        } else {
-                            hudOn = it
-                            if (it) OverlayService.start(context) else OverlayService.stop(context)
-                        }
-                    }
-                    SettingRow("Тихая строка в шторке", "Без звука и всплывающих баннеров", notifOn) { notifOn = it }
-                    SettingRow("Быстрая плитка Android", "Вкл/выкл оптимизации и смена режима в 1 тап", tileOn) { tileOn = it }
-                    SettingRow("Виджет на рабочий стол", "Скорость, пинг и кнопка «Улучшить»", widgetOn) { widgetOn = it }
-                }
-            }
-        }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Автосценарии", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SettingRow("Автозапуск при USB-модеме", "Режим «USB-модем» при подключении к ПК", usbAuto) { usbAuto = it }
-                    SettingRow("Автозапуск при игре", "Режим «Игра» при открытии игры из списка", gameAuto) { gameAuto = it }
+                    Text("Фоновые функции", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Автосценарии и оверлей пока недоступны. Приложение не отправляет push-уведомления.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
                     // Карточка статуса Shizuku
                     Column(Modifier.padding(vertical = 6.dp)) {
                         Text("Shizuku / Root", style = MaterialTheme.typography.bodyMedium)
                         Text(
                             when (shizukuStatus) {
-                                ShizukuManager.Status.READY -> "✅ Готов: режим сети, стоп приложений и перерегистрация соты работают автоматически"
-                                ShizukuManager.Status.NO_PERMISSION -> "⚠️ Shizuku запущен — нажмите «Разрешить», и Doxaiz сам применит режим сети"
+                                ShizukuManager.Status.READY -> "Shizuku подключён. Доступность действий зависит от устройства и разрешений."
+                                ShizukuManager.Status.NO_PERMISSION -> "⚠️ Shizuku запущен — нажмите «Разрешить»."
                                 ShizukuManager.Status.NOT_RUNNING -> "⚠️ Установите и запустите Shizuku (инструкция ниже)"
-                                ShizukuManager.Status.NOT_INSTALLED -> "Shizuku не установлен. Без него супер-фичи недоступны, но основная оптимизация работает"
+                                ShizukuManager.Status.NOT_INSTALLED -> "Shizuku не подключён; доступны только функции без привилегий."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

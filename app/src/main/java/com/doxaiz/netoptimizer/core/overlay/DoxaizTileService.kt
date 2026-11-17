@@ -20,6 +20,11 @@ class DoxaizTileService : TileService() {
     private val keepAlive by lazy { KeepAliveEngine(applicationContext) }
     private var active = false
 
+    override fun onDestroy() {
+        keepAlive.stop()
+        super.onDestroy()
+    }
+
     override fun onStartListening() {
         super.onStartListening()
         qsTile?.let {

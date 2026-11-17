@@ -115,6 +115,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.height(8.dp))
             }
+            Text("Если список пуст, включите доступ к истории использования для приложения в настройках Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // Живой график топ-3 приложений
             if (top3.isNotEmpty() && history.size > 2) {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -217,7 +218,7 @@ private fun AppRow(app: AppTraffic, onToggleBlock: () -> Unit, onStop: () -> Uni
                     color = if (app.networkBlocked) AccentGreen else AccentAmber
                 )
             }
-            TextButton(onClick = onStop) { Text("Стоп") }
+            TextButton(onClick = onStop, enabled = !app.whitelisted) { Text("Стоп") }
             Switch(
                 checked = !app.networkBlocked,
                 onCheckedChange = { onToggleBlock() },

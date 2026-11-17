@@ -78,7 +78,7 @@ class TrafficMonitor(private val context: Context) {
             val uid = info.applicationInfo?.uid ?: continue
             if (uid == Process.myUid()) continue
             val stats = try {
-                statsManager.queryDetailsForUid(transport, "", 0L, end, uid)
+                statsManager.queryDetailsForUid(transport, null, 0L, end, uid)
             } catch (_: Exception) { null } ?: continue
             val bucket = android.app.usage.NetworkStats.Bucket()
             var rx = 0L

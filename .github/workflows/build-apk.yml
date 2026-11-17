@@ -23,7 +23,7 @@ jobs:
       - name: Build release APK
         run: |
           set -o pipefail
-          if ! gradle --no-daemon --console plain assembleRelease > build-output.log 2>&1; then
+          if ! gradle --no-daemon --console plain testReleaseUnitTest assembleRelease > build-output.log 2>&1; then
             tail -100 build-output.log
             python3 -c "from pathlib import Path; s=Path('build-output.log').read_text(errors='replace')[-12000:]; print('::error::' + s.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))"
             exit 1

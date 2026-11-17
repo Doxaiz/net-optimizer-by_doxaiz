@@ -55,10 +55,6 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
             != PackageManager.PERMISSION_GRANTED
         ) needed += Manifest.permission.READ_PHONE_STATE
-        if (android.os.Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) needed += Manifest.permission.POST_NOTIFICATIONS
         if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 }

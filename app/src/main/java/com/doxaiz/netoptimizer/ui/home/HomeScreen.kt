@@ -21,6 +21,7 @@ import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
 import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
 import com.doxaiz.netoptimizer.core.net.PingTarget
 import com.doxaiz.netoptimizer.core.net.PingTester
+import com.doxaiz.netoptimizer.core.util.ConnectionScore
 import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.core.util.QualityText
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
@@ -48,7 +49,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val keepAlive = remember { KeepAliveEngine(context) }
     DisposableEffect(keepAlive) { onDispose { keepAlive.stop() } }
     val validSignal = signal.rsrp in -160..-30
-    val score = ping?.takeIf { validSignal }?.let { computeScore(it, signal.rsrp) }
+    val score = ConnectionScore.calculate(ping, signal.rsrp)
 
     fun boost() {
         if (busy) return
@@ -121,7 +122,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("ПИНГ · TCP", ping?.let { "$it мс" } ?: "—", ping?.let { QualityText.ping(it) + " · джиттер ${jitter ?: 0} мс" } ?: "Нет замера", Modifier.weight(1f), ping?.let { if (it <= 70) AccentGreen else MaterialTheme.colorScheme.error })
+                MetricCard("ПИНГ · TCP", ping?.let { "$it мс" } ?: "—", ping?.let { QualityText.ping(it) + " · джиттер ${jitter ?: 0} мс" } ?: "Нет замера", Modifier.weight(1f), ping?.let { if (it <= 70) AccentGreen else MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
                 MetricCard("СИГНАЛ · RSRP", if (validSignal) "${signal.rsrp} dBm" else "—", if (validSignal) QualityText.signal(signal.rsrp) else "Нет данных о соте", Modifier.weight(1f), if (validSignal && signal.rsrp >= -100) AccentGreen else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -179,10 +180,4 @@ private fun MetricCard(title: String, value: String, desc: String, modifier: Mod
             Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-}
-
-private fun computeScore(ping: Int, rsrp: Int): Int {
-    val p = when { ping <= 30 -> 40; ping <= 50 -> 32; ping <= 80 -> 24; ping <= 120 -> 15; else -> 5 }
-    val s = when { rsrp >= -80 -> 40; rsrp >= -90 -> 32; rsrp >= -100 -> 22; rsrp >= -110 -> 12; else -> 4 }
-    return (p + s + 10).coerceIn(5, 98)
 }

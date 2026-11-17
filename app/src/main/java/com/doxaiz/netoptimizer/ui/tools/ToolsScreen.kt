@@ -76,6 +76,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
 
     val bench = remember { DnsBenchmark(context) }
     val keepAliveEngine = remember { KeepAliveEngine(context) }
+    DisposableEffect(keepAliveEngine) { onDispose { keepAliveEngine.stop() } }
     val pingTester = remember { PingTester(context) }
     val speedTester = remember { SpeedTester(context) }
 
@@ -100,7 +101,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text("Ходи с телефоном — чем выше и чаще писк, тем лучше точка приёма", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Оценка только по уровню сигнала; расположение сот не определяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = soundOn, onClick = { soundOn = !soundOn }, label = { Text("🔊 Звук") })
@@ -114,43 +115,11 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Стабилизация 4G / 5G", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Режим сети (сохраняется после перезагрузки)", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(6.dp))
-                    NetworkMode.entries.forEach { m ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                netMode = m
-                                NetworkModePrefs.save(context, m)
-                                // Пытаемся применить через Shizuku; если не вышло — открываем RadioInfo
-                                val applied = NetworkModeApplier.apply(m)
-                                netModeStatus = if (applied) {
-                                    "✅ Режим «${m.label}» применён через Shizuku"
-                                } else if (m == NetworkMode.AUTO) {
-                                    "Режим «Авто» — телефон сам выбирает 4G/5G"
-                                } else {
-                                    "⚠️ Shizuku недоступен: откройте меню 4G/5G ниже и выставьте «${m.label}» вручную (настройка сохранится)"
-                                }
-                            }.padding(vertical = 4.dp)
-                        ) {
-                            RadioButton(selected = netMode == m, onClick = {
-                                netMode = m
-                                NetworkModePrefs.save(context, m)
-                                val applied = NetworkModeApplier.apply(m)
-                                netModeStatus = if (applied) "✅ Режим «${m.label}» применён через Shizuku"
-                                else "⚠️ Shizuku недоступен: выставьте «${m.label}» вручную в меню 4G/5G"
-                            })
-                            Text(m.label)
-                        }
-                    }
-                    if (netModeStatus.isNotEmpty()) {
-                        Text(netModeStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Text("Важно: без VoLTE входящие звонки могут не проходить в режиме «Только 4G» — проверьте VoLTE в настройках SIM", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Принудительный режим сети пока недоступен: проверка VoLTE не реализована. Без VoLTE переключение может помешать звонкам.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Анти-сон модема (Keep-Alive)")
-                            Text("Профиль: Макс. отклик — для игр и USB-модема", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Только на этом экране; пауза при заряде ниже 20%. Эффект не гарантирован.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = keepAliveOn, onCheckedChange = {
                             keepAliveOn = it
@@ -159,23 +128,6 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { openRadioInfo(context) }, modifier = Modifier.weight(1f)) { Text("📡 Открыть меню 4G/5G") }
-                        OutlinedButton(
-                            onClick = {
-                                if (ShizukuManager.isReady()) {
-                                    // Shizuku: автоматический сброс соты (авиарежим туда-сюда)
-                                    cellResetting = true
-                                    scope.launch {
-                                        val ok = ShizukuManager.resetCell()
-                                        cellResetting = false
-                                        netModeStatus = if (ok) "✅ Сота перерегистрирована через Shizuku" else "⚠️ Не удалось сбросить соту"
-                                    }
-                                } else {
-                                    openInternetPanel(context)
-                                }
-                            },
-                            enabled = !cellResetting,
-                            modifier = Modifier.weight(1f)
-                        ) { Text(if (cellResetting) "⏳ Сбрасываю…" else "🔄 Сбросить соту") }
                     }
                 }
             }
@@ -423,8 +375,6 @@ private fun RadarCanvas(rsrp: Int, soundOn: Boolean = true, vibOn: Boolean = fal
         // Свечение центрального маркера
         drawCircle(centerColor.copy(alpha = 0.25f), radius = 14f, center = c)
         drawCircle(centerColor, radius = 5f, center = c)
-        val blipAngle = sweep * 1.7f
-        drawCircle(Color(0xFFA855F7), radius = 4f, center = Offset(c.x + maxR * 0.55f * cos(Math.toRadians(blipAngle.toDouble())).toFloat(), c.y + maxR * 0.55f * sin(Math.toRadians(blipAngle.toDouble())).toFloat()))
     }
 }
 

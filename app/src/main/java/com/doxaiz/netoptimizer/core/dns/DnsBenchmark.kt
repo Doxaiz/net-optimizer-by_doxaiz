@@ -53,10 +53,13 @@ class DnsBenchmark(private val context: android.content.Context) {
             network.bindSocket(socket)
             socket.soTimeout = 1500
             val query = buildDnsQuery(randomDomain())
+            socket.connect(InetSocketAddress(ip, 53))
             val start = System.nanoTime()
             socket.send(DatagramPacket(query, query.size, InetSocketAddress(ip, 53)))
             val buf = ByteArray(512)
-            socket.receive(DatagramPacket(buf, buf.size))
+            val response = DatagramPacket(buf, buf.size)
+            socket.receive(response)
+            if (response.length < 12 || buf[0] != query[0] || buf[1] != query[1] || (buf[2].toInt() and 0x80) == 0) return -1
             ((System.nanoTime() - start) / 1_000_000).toInt()
         } catch (_: Exception) {
             -1
