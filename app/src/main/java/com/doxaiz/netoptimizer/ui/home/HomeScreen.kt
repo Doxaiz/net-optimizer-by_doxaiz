@@ -36,6 +36,7 @@ import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 enum class WorkMode(val label: String, val color: Color) {
     NORMAL("Обычный", AccentCyan),
@@ -171,9 +172,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 // Ищем прожорливое приложение в фоне
                 try {
                     val tm = com.doxaiz.netoptimizer.core.traffic.TrafficMonitor(context)
-                    val apps = tm.observe(DoxaizVpnService.blockedApps).let { flow ->
-                        kotlinx.coroutines.flow.first(flow)
-                    }
+                    tm.observe(DoxaizVpnService.blockedApps).first()
                     report += "ℹ️ Фоновый трафик: откройте вкладку «Трафик» — там видно, кто ест канал"
                 } catch (_: Exception) { }
             }
