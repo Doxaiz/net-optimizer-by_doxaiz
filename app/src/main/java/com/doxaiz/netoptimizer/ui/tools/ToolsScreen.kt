@@ -2,8 +2,11 @@ package com.doxaiz.netoptimizer.ui.tools
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -12,6 +15,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -50,12 +54,17 @@ import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 
+private enum class ToolsSection(val label: String) {
+    SIGNAL("Сигнал"), DNS("DNS"), TESTS("Замеры"), USB("USB-модем")
+}
+
 @Composable
 fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val signal by monitor.state.collectAsState()
 
+    var section by rememberSaveable { mutableStateOf(ToolsSection.SIGNAL) }
     var soundOn by remember { mutableStateOf(false) }
     var vibOn by remember { mutableStateOf(false) }
     var netMode by remember { mutableStateOf(NetworkModePrefs.load(context)) }
@@ -79,187 +88,199 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     DisposableEffect(keepAliveEngine) { onDispose { keepAliveEngine.stop() } }
     val pingTester = remember { PingTester(context) }
     val speedTester = remember { SpeedTester(context) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(section) { listState.scrollToItem(0) }
 
-    LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Text("ИНСТРУМЕНТЫ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text("Диагностика сети", style = MaterialTheme.typography.headlineSmall)
-            Text("Замеры выполняются только через мобильное подключение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(modifier = modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+        Spacer(Modifier.height(14.dp))
+        Text("ИНСТРУМЕНТЫ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text("Диагностика сети", style = MaterialTheme.typography.headlineSmall)
+        Text("Замеры выполняются только через мобильное подключение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ToolsSection.entries.forEach { item ->
+                FilterChip(selected = section == item, onClick = { section = item }, label = { Text(item.label) })
+            }
         }
-        // Радар
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Живой радар сигнала", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    RadarCanvas(rsrp = signal.rsrp, soundOn = soundOn, vibOn = vibOn)
-                    Text(if (signal.rsrp in -160..-30) "${signal.rsrp} dBm" else "Нет данных о сигнале", style = MaterialTheme.typography.headlineSmall)
-                    if (signal.neighbors.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Радар
+            if (section == ToolsSection.SIGNAL) item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Живой радар сигнала", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        RadarCanvas(rsrp = signal.rsrp, soundOn = soundOn, vibOn = vibOn)
+                        Text(if (signal.rsrp in -160..-30) "${signal.rsrp} dBm" else "Нет данных о сигнале", style = MaterialTheme.typography.headlineSmall)
+                        if (signal.neighbors.isNotEmpty()) {
+                            Text(
+                                "Соседние соты: " + signal.neighbors.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text("Оценка только по уровню сигнала; расположение сот не определяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = soundOn, onClick = { soundOn = !soundOn }, label = { Text("🔊 Звук") })
+                            FilterChip(selected = vibOn, onClick = { vibOn = !vibOn }, label = { Text("📳 Вибрация") })
+                        }
+                    }
+                }
+            }
+            // Стабилизация 4G/5G
+            if (section == ToolsSection.SIGNAL) item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Стабилизация 4G / 5G", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Принудительный режим сети пока недоступен: проверка VoLTE не реализована. Без VoLTE переключение может помешать звонкам.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Анти-сон модема (Keep-Alive)")
+                                Text("Только на этом экране; пауза при заряде ниже 20%. Эффект не гарантирован.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = keepAliveOn, onCheckedChange = {
+                                keepAliveOn = it
+                                if (it) keepAliveEngine.start(scope, KeepAliveProfile.MAX) else keepAliveEngine.stop()
+                            })
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { openRadioInfo(context) }, modifier = Modifier.weight(1f)) { Text("📡 Открыть меню 4G/5G") }
+                        }
+                    }
+                }
+            }
+            // DNS
+            if (section == ToolsSection.DNS) item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Бенчмарк DNS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Подключение DNS и блокировка трекеров временно отключены: VPN требует доработки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        dnsList.forEach { d ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                            ) {
+                                Text(if (selectedDns?.name == d.name) "★  " else "    ", color = MaterialTheme.colorScheme.primary)
+                                Column(Modifier.weight(1f)) {
+                                    Text(d.name)
+                                    Text(d.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(if (d.ms > 0) "${d.ms} мс" else "—", color = if (d.ms in 1..14) AccentGreen else AccentCyan)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                benching = true
+                                scope.launch {
+                                    dnsList = bench.benchmarkAll()
+                                    selectedDns = dnsList.firstOrNull { it.ms > 0 }
+                                    benching = false
+                                }
+                            },
+                            enabled = !benching,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(if (benching) "⏳ Замеряю…" else "🔎 Найти самый быстрый DNS") }
+                    }
+                }
+            }
+            // Спидтест
+            if (section == ToolsSection.TESTS) item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Спидтест", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            "Соседние соты: " + signal.neighbors.joinToString(" · "),
+                            speed?.takeIf { it.downloadMbps > 0 }?.let { "%.1f Мбит/с".format(it.downloadMbps) } ?: "Нет данных",
+                            style = MaterialTheme.typography.headlineMedium
+                        )
+                        if (speed != null && speed!!.downloadMbps > 0) {
+                            Text("Отдача: ${if (speed!!.uploadMbps > 0) "%.1f Мбит/с".format(speed!!.uploadMbps) else "нет данных"} · TCP после теста: ${if (speed!!.bufferbloatMs > 0) "${speed!!.bufferbloatMs} мс" else "нет данных"} (не bufferbloat)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                speedTesting = true
+                                scope.launch {
+                                    val r = speedTester.test()
+                                    speed = r
+                                    speedTesting = false
+                                }
+                            },
+                            enabled = !speedTesting,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(if (speedTesting) "⏳ Тестирую…" else "▶ Запустить спидтест") }
+                    }
+                }
+            }
+            // Пинг игр
+            if (section == ToolsSection.TESTS) item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("TCP-задержка сайтов игр и сервисов (не игровых серверов)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        PingCatalog.targets.forEach { t ->
+                            val r = pingResults[t.name]
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(t.name)
+                                    Text(t.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(
+                                    r?.takeIf { it.avgMs >= 0 }?.let { "${it.avgMs} мс · ±${it.jitterMs}" } ?: "—",
+                                    color = when {
+                                        r == null || r.avgMs < 0 -> Color.Gray
+                                        r.avgMs <= 50 -> AccentGreen
+                                        r.avgMs <= 100 -> AccentCyan
+                                        else -> AccentRed
+                                    }
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                pingTesting = true
+                                scope.launch {
+                                    pingResults = pingTester.testAll(PingCatalog.targets)
+                                    pingTesting = false
+                                }
+                            },
+                            enabled = !pingTesting,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(if (pingTesting) "⏳ Тестирую…" else "▶ Запустить тест пинга") }
+                    }
+                }
+            }
+            // USB-модем
+            if (section == ToolsSection.USB) item {
+                val profile = CarrierProfiles.find("25002")
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("USB-модем для ПК (Windows 10/11)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Состояние USB-модема не определяется", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Включите USB-модем в настройках Android. Проверьте соединение телефона и ПК.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Пример DNS для ПК: 77.88.8.8 (резерв 1.1.1.1); лучший адрес зависит от сети.")
+                        Text("Пример MTU: ${profile?.recommendedMtu ?: 1440}; подходящее значение зависит от сети.")
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Настройка Windows: Параметры → Сеть → Ethernet → Remote NDIS → DNS вручную 77.88.8.8 / 1.1.1.1. MTU: netsh interface ipv4 set subinterface \"Remote NDIS\" mtu=${profile?.recommendedMtu ?: 1440} store=persistent",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Если ПК не получает интернет: некоторые операторы режут раздачу по TTL. Попробуйте TTL 64/128 (нужен Shizuku/Root) или проверьте, что на тарифе разрешена раздача.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text("Оценка только по уровню сигнала; расположение сот не определяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = soundOn, onClick = { soundOn = !soundOn }, label = { Text("🔊 Звук") })
-                        FilterChip(selected = vibOn, onClick = { vibOn = !vibOn }, label = { Text("📳 Вибрация") })
-                    }
-                }
-            }
-        }
-        // Стабилизация 4G/5G
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Стабилизация 4G / 5G", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Принудительный режим сети пока недоступен: проверка VoLTE не реализована. Без VoLTE переключение может помешать звонкам.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Анти-сон модема (Keep-Alive)")
-                            Text("Только на этом экране; пауза при заряде ниже 20%. Эффект не гарантирован.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(checked = keepAliveOn, onCheckedChange = {
-                            keepAliveOn = it
-                            if (it) keepAliveEngine.start(scope, KeepAliveProfile.MAX) else keepAliveEngine.stop()
-                        })
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { openRadioInfo(context) }, modifier = Modifier.weight(1f)) { Text("📡 Открыть меню 4G/5G") }
-                    }
-                }
-            }
-        }
-        // DNS
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Бенчмарк DNS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Подключение DNS и блокировка трекеров временно отключены: VPN требует доработки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    dnsList.forEach { d ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
-                        ) {
-                            Text(if (selectedDns?.name == d.name) "★  " else "    ", color = MaterialTheme.colorScheme.primary)
-                            Column(Modifier.weight(1f)) {
-                                Text(d.name)
-                                Text(d.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text(if (d.ms > 0) "${d.ms} мс" else "—", color = if (d.ms in 1..14) AccentGreen else AccentCyan)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            benching = true
-                            scope.launch {
-                                dnsList = bench.benchmarkAll()
-                                selectedDns = dnsList.firstOrNull { it.ms > 0 }
-                                benching = false
-                            }
-                        },
-                        enabled = !benching,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (benching) "⏳ Замеряю…" else "🔎 Найти самый быстрый DNS") }
-                }
-            }
-        }
-        // Спидтест
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Спидтест", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        speed?.takeIf { it.downloadMbps > 0 }?.let { "%.1f Мбит/с".format(it.downloadMbps) } ?: "Нет данных",
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    if (speed != null && speed!!.downloadMbps > 0) {
-                        Text("Отдача: ${if (speed!!.uploadMbps > 0) "%.1f Мбит/с".format(speed!!.uploadMbps) else "нет данных"} · TCP после теста: ${if (speed!!.bufferbloatMs > 0) "${speed!!.bufferbloatMs} мс" else "нет данных"} (не bufferbloat)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            speedTesting = true
-                            scope.launch {
-                                val r = speedTester.test()
-                                speed = r
-                                speedTesting = false
-                            }
-                        },
-                        enabled = !speedTesting,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (speedTesting) "⏳ Тестирую…" else "▶ Запустить спидтест") }
-                }
-            }
-        }
-        // Пинг игр
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("TCP-задержка сайтов игр и сервисов (не игровых серверов)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    PingCatalog.targets.forEach { t ->
-                        val r = pingResults[t.name]
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                            Column(Modifier.weight(1f)) {
-                                Text(t.name)
-                                Text(t.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text(
-                                r?.takeIf { it.avgMs >= 0 }?.let { "${it.avgMs} мс · ±${it.jitterMs}" } ?: "—",
-                                color = when {
-                                    r == null || r.avgMs < 0 -> Color.Gray
-                                    r.avgMs <= 50 -> AccentGreen
-                                    r.avgMs <= 100 -> AccentCyan
-                                    else -> AccentRed
-                                }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            pingTesting = true
-                            scope.launch {
-                                pingResults = pingTester.testAll(PingCatalog.targets)
-                                pingTesting = false
-                            }
-                        },
-                        enabled = !pingTesting,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (pingTesting) "⏳ Тестирую…" else "▶ Запустить тест пинга") }
-                }
-            }
-        }
-        // USB-модем
-        item {
-            val profile = CarrierProfiles.find("25002")
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("USB-модем для ПК (Windows 10/11)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Состояние USB-модема не определяется", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Включите USB-модем в настройках Android. Проверьте соединение телефона и ПК.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Пример DNS для ПК: 77.88.8.8 (резерв 1.1.1.1); лучший адрес зависит от сети.")
-                    Text("Пример MTU: ${profile?.recommendedMtu ?: 1440}; подходящее значение зависит от сети.")
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Настройка Windows: Параметры → Сеть → Ethernet → Remote NDIS → DNS вручную 77.88.8.8 / 1.1.1.1. MTU: netsh interface ipv4 set subinterface \"Remote NDIS\" mtu=${profile?.recommendedMtu ?: 1440} store=persistent",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Если ПК не получает интернет: некоторые операторы режут раздачу по TTL. Попробуйте TTL 64/128 (нужен Shizuku/Root) или проверьте, что на тарифе разрешена раздача.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }

@@ -56,7 +56,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
     val apps by monitor.observe(blocked).collectAsState(initial = emptyList())
     val shown = apps.filter {
         when (filter) {
-            "active" -> !it.networkBlocked
+            "active" -> !it.networkBlocked && it.rxBytesPerSec + it.txBytesPerSec > 0
             "blocked" -> it.networkBlocked
             "white" -> it.whitelisted
             else -> true

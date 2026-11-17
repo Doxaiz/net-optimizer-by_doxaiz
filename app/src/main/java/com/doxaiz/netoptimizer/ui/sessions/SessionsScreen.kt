@@ -29,7 +29,7 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, onOpenSettings: () -> Unit) {
+fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val context = LocalContext.current
     val repo = remember { (context.applicationContext as DoxaizApp).sessionRepository }
     val sessions by repo.observeAll().collectAsState(initial = emptyList())
@@ -61,10 +61,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, onOpen
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("СЕССИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                TextButton(onClick = onOpenSettings) { Text("Настройки") }
-            }
+            Text("СЕССИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("История соединения", style = MaterialTheme.typography.headlineSmall)
         }
         item {

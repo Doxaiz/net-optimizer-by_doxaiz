@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -24,9 +25,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,13 +49,14 @@ private val tabs = listOf(
     Tab("Главная", Icons.Filled.Home),
     Tab("Инструменты", Icons.Filled.Build),
     Tab("Трафик", Icons.Filled.List),
-    Tab("Сессии", Icons.Filled.DateRange)
+    Tab("Сессии", Icons.Filled.DateRange),
+    Tab("Настройки", Icons.Filled.Settings)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
-    var selected by remember { mutableStateOf(0) }
+    var selected by rememberSaveable { mutableStateOf(0) }
     // Единый монитор сигнала на всё приложение: одна регистрация колбэка,
     // без переподписок при переключении вкладок
     val context = LocalContext.current
@@ -72,7 +77,7 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
                         selected = selected == index,
                         onClick = { selected = index },
                         icon = { Icon(tab.icon, contentDescription = tab.title) },
-                        label = { Text(tab.title) }
+                        label = { Text(tab.title, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 10.sp) }
                     )
                 }
             }
@@ -100,13 +105,11 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
                 2 -> TrafficScreen(modifier = Modifier.padding(padding))
                 3 -> SessionsScreen(
                     modifier = Modifier.padding(padding),
-                    monitor = monitor,
-                    onOpenSettings = { selected = 4 }
+                    monitor = monitor
                 )
                 4 -> SettingsScreen(
                     modifier = Modifier.padding(padding),
-                    onThemeChange = onThemeChange,
-                    onBack = { selected = 3 }
+                    onThemeChange = onThemeChange
                 )
             }
         }

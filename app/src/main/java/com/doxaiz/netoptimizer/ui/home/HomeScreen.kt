@@ -120,6 +120,15 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             }
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
+        if (comparison != null || report.isNotEmpty()) item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("РЕЗУЛЬТАТ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    comparison?.let { (a, b) -> Text("До $a мс  →  После $b мс", style = MaterialTheme.typography.titleLarge) }
+                    report.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricCard("ПИНГ · TCP", ping?.let { "$it мс" } ?: "—", ping?.let { QualityText.ping(it) + " · джиттер ${jitter ?: 0} мс" } ?: "Нет замера", Modifier.weight(1f), ping?.let { if (it <= 70) AccentGreen else MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
@@ -139,15 +148,6 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     Text("Фоновый автопилот пока недоступен", style = MaterialTheme.typography.titleSmall)
                     Text("Keep-Alive работает только на этом экране и приостанавливается при заряде ниже 20%.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (keepAliveOn) TextButton(onClick = { keepAlive.stop(); keepAliveOn = false }) { Text("Остановить Keep-Alive") }
-                }
-            }
-        }
-        if (comparison != null || report.isNotEmpty()) item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("РЕЗУЛЬТАТ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    comparison?.let { (a, b) -> Text("До $a мс  →  После $b мс", style = MaterialTheme.typography.titleLarge) }
-                    report.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }

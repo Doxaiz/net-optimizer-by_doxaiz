@@ -19,8 +19,7 @@ import com.doxaiz.netoptimizer.ui.theme.DoxaizThemeKind
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
-    onThemeChange: (DoxaizThemeKind) -> Unit,
-    onBack: () -> Unit
+    onThemeChange: (DoxaizThemeKind) -> Unit
 ) {
     val context = LocalContext.current
     var theme by remember { mutableStateOf(ThemePrefs.load(context)) }
@@ -40,10 +39,8 @@ fun SettingsScreen(
 
     LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Row {
-                TextButton(onClick = onBack) { Text("← Назад") }
-                Text("Настройки Doxaiz", style = MaterialTheme.typography.titleLarge)
-            }
+            Text("НАСТРОЙКИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text("Настройки Doxaiz", style = MaterialTheme.typography.headlineSmall)
         }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
