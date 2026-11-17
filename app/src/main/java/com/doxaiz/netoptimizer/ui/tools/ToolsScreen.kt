@@ -24,6 +24,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.cellular.CarrierProfiles
 import com.doxaiz.netoptimizer.core.cellular.NetworkMode
@@ -52,11 +55,14 @@ import com.doxaiz.netoptimizer.core.net.ScenarioTester
 import com.doxaiz.netoptimizer.core.net.ScenarioVerdict
 import com.doxaiz.netoptimizer.core.net.SpeedResult
 import com.doxaiz.netoptimizer.core.net.SpeedTester
+import com.doxaiz.netoptimizer.core.net.SpeedStatus
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentRed
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -89,6 +95,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var customTesting by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf<SpeedResult?>(null) }
     var speedTesting by remember { mutableStateOf(false) }
+    var speedError by remember { mutableStateOf(false) }
+    var speedJob by remember { mutableStateOf<Job?>(null) }
     var scenarios by remember { mutableStateOf<List<ScenarioVerdict>?>(null) }
     val dnsEntries by DnsLog.entries.collectAsState()
     val dnsBlocked by DnsLog.blockedCount.collectAsState()
@@ -98,9 +106,23 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val keepAliveEngine = remember { KeepAliveEngine(context) }
     DisposableEffect(keepAliveEngine) { onDispose { keepAliveEngine.stop() } }
     val pingTester = remember { PingTester(context) }
-    val speedTester = remember { SpeedTester(context) }
+    val speedTester = remember { SpeedTester(context.applicationContext) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) speedJob?.cancel()
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            speedJob?.cancel()
+        }
+    }
     val listState = rememberLazyListState()
-    LaunchedEffect(section) { listState.scrollToItem(0) }
+    LaunchedEffect(section) {
+        if (section != ToolsSection.TESTS) speedJob?.cancel()
+        listState.scrollToItem(0)
+    }
 
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 14.dp)) {
         Spacer(Modifier.height(14.dp))
@@ -208,20 +230,40 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         Text("Спидтест", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            speed?.takeIf { it.downloadMbps > 0 }?.let { "%.1f Мбит/с".format(it.downloadMbps) } ?: "Нет данных",
-                            style = MaterialTheme.typography.headlineMedium
+                            speed?.downloadMbps?.let { "%.1f Мбит/с".format(it) } ?: "Нет данных",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = if (speed?.downloadMbps != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (speed != null && speed!!.downloadMbps > 0) {
-                            Text("Отдача: ${if (speed!!.uploadMbps > 0) "%.1f Мбит/с".format(speed!!.uploadMbps) else "нет данных"} · TCP после теста: ${if (speed!!.bufferbloatMs > 0) "${speed!!.bufferbloatMs} мс" else "нет данных"} (не bufferbloat)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Скачивание · средняя скорость одного соединения", style = MaterialTheme.typography.bodySmall)
+                        speed?.let { result ->
+                            Text("Отдача: ${result.uploadMbps?.let { "%.1f Мбит/с".format(it) } ?: "нет данных"}", style = MaterialTheme.typography.bodyMedium, color = if (result.uploadMbps != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            val message = when (result.status) {
+                                SpeedStatus.NO_CELLULAR -> "Нет активного мобильного интернета."
+                                SpeedStatus.NETWORK_CHANGED -> "Мобильная сеть изменилась или пропала; результат сброшен."
+                                SpeedStatus.LOW_BATTERY -> "Тест остановлен: заряд ниже 20% или недоступен."
+                                SpeedStatus.COMPLETED -> if (result.downloadMbps == null || result.uploadMbps == null) "Не все замеры удались: сервер недоступен, ответ неполный или истекло время." else "Скорость зависит от сервера, сигнала и загрузки сети."
+                            }
+                            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        if (speedError) Text("Не удалось выполнить тест. Попробуйте позже.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text("Сервер Cloudflare: до 10 МБ скачивания и 5 МБ отдачи плюс служебный трафик. Тест расходует мобильный интернет; соединение и ответ сервера входят во время замера. При сворачивании тест отменяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Буферблат пока не измеряется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {
                                 speedTesting = true
-                                scope.launch {
-                                    val r = speedTester.test()
-                                    speed = r
-                                    speedTesting = false
+                                speed = null
+                                speedError = false
+                                speedJob = scope.launch {
+                                    try {
+                                        speed = speedTester.test()
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (_: Exception) {
+                                        speedError = true
+                                    } finally {
+                                        speedTesting = false
+                                    }
                                 }
                             },
                             enabled = !speedTesting,
