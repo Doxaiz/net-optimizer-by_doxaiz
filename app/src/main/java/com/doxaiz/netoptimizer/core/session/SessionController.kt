@@ -17,14 +17,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.UUID
 
-enum class SessionPhase { IDLE, RUNNING, PAUSED, SAVING }
+enum class SessionPhase { RESTORING, RECOVERY_ERROR, IDLE, RUNNING, PAUSED, SAVING }
 
 data class SessionUiState(
     val phase: SessionPhase = SessionPhase.IDLE,
     val progress: SessionProgress = SessionProgress(),
     val seconds: Long = 0,
     val mode: String = "Обычный",
+    val sessionId: Long = 0,
+    val startedAt: Long = 0,
     val message: String = ""
 )
 
@@ -35,10 +38,50 @@ class SessionController(
     private val repository: SessionRepository,
     private val monitor: SignalMonitor
 ) {
-    var state by mutableStateOf(SessionUiState())
+    private val drafts = SessionDraftStore(context)
+    var state by mutableStateOf(SessionUiState(phase = SessionPhase.RESTORING))
         private set
     private var probeJob: Job? = null
     private var tickerJob: Job? = null
+    private var recoveryJob: Job? = null
+
+    init { restoreDraft() }
+
+    fun restoreDraft() {
+        if (state.phase != SessionPhase.RESTORING && state.phase != SessionPhase.RECOVERY_ERROR) return
+        recoveryJob?.cancel()
+        state = state.copy(phase = SessionPhase.RESTORING, message = "Проверяем черновик…")
+        val loaded = drafts.load()
+        if (loaded.isFailure) {
+            state = state.copy(phase = SessionPhase.RECOVERY_ERROR, message = "Не удалось прочитать черновик. Попробуйте ещё раз или удалите его.")
+            return
+        }
+        val draft = loaded.getOrNull()
+        if (draft == null) {
+            state = SessionUiState()
+            return
+        }
+        recoveryJob = scope.launch {
+            try {
+                val saved = repository.find(draft.id)
+                if (saved == null) {
+                    state = SessionUiState(phase = SessionPhase.PAUSED, progress = draft.progress,
+                        seconds = draft.progress.elapsedMs / 1000, mode = draft.mode,
+                        sessionId = draft.id, startedAt = draft.startedAt,
+                        message = "Черновик восстановлен. Продолжите замер или сохраните сессию.")
+                } else if (saved.timestamp == draft.startedAt && saved.mode == draft.mode) {
+                    drafts.clear()
+                    state = SessionUiState(message = "Предыдущая сессия уже сохранена в истории.")
+                } else {
+                    state = state.copy(phase = SessionPhase.RECOVERY_ERROR, message = "Черновик конфликтует с записью в истории. Он не удалён.")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                state = state.copy(phase = SessionPhase.RECOVERY_ERROR, message = "Не удалось проверить черновик. Попробуйте ещё раз.")
+            }
+        }
+    }
 
     fun startOrResume(mode: String) {
         if (state.phase != SessionPhase.IDLE && state.phase != SessionPhase.PAUSED) return
@@ -50,11 +93,15 @@ class SessionController(
             state = state.copy(message = "Для замера нужен заряд не ниже 20% и доступные данные батареи.")
             return
         }
-        val newProgress = (if (state.phase == SessionPhase.IDLE) SessionProgress() else state.progress)
-            .resume(SystemClock.elapsedRealtime())
+        val isNew = state.phase == SessionPhase.IDLE
+        val newProgress = (if (isNew) SessionProgress() else state.progress).resume(SystemClock.elapsedRealtime())
+        val randomId = UUID.randomUUID().mostSignificantBits or Long.MIN_VALUE
         state = state.copy(phase = SessionPhase.RUNNING, progress = newProgress,
             seconds = newProgress.elapsedAt(SystemClock.elapsedRealtime()) / 1000,
-            mode = if (state.phase == SessionPhase.IDLE) mode else state.mode, message = "")
+            mode = if (isNew) mode else state.mode,
+            sessionId = if (isNew) (if (randomId == -1L) -2L else randomId) else state.sessionId,
+            startedAt = if (isNew) System.currentTimeMillis() else state.startedAt, message = "")
+        checkpoint()
         val tester = PingTester(context)
         probeJob = scope.launch {
             while (true) {
@@ -67,6 +114,7 @@ class SessionController(
                     PingStatus.RESOLUTION_FAILED -> state = state.copy(message = "Не удалось определить адрес цели; повторяем замер.")
                     PingStatus.COMPLETED -> if (result.attemptsMade > 0) {
                         state = state.copy(progress = state.progress.addCompleted(result.avgMs, result.attemptsMade, result.successfulAttempts), message = "")
+                        checkpoint()
                     }
                 }
                 delay(5000)
@@ -76,12 +124,25 @@ class SessionController(
             var ticks = 0
             while (true) {
                 state = state.copy(seconds = state.progress.elapsedAt(SystemClock.elapsedRealtime()) / 1000)
-                if (ticks++ % 5 == 0 && !CellularNetwork.batteryOk(context)) {
-                    pause("Сессия приостановлена: заряд ниже 20% или данные батареи недоступны.")
-                    return@launch
+                if (ticks++ % 5 == 0) {
+                    if (!CellularNetwork.batteryOk(context)) {
+                        pause("Сессия приостановлена: заряд ниже 20% или данные батареи недоступны.")
+                        return@launch
+                    }
+                    checkpoint()
                 }
                 delay(1000)
             }
+        }
+    }
+
+    private fun checkpoint() {
+        if (state.phase != SessionPhase.RUNNING && state.phase != SessionPhase.PAUSED) return
+        try {
+            val progress = state.progress.pause(SystemClock.elapsedRealtime())
+            drafts.save(SessionDraft(state.sessionId, state.startedAt, state.mode, progress))
+        } catch (_: Exception) {
+            state = state.copy(message = "Не удалось записать черновик. Сохранение после выгрузки не гарантируется.")
         }
     }
 
@@ -91,6 +152,17 @@ class SessionController(
         tickerJob?.cancel(); tickerJob = null
         val progress = state.progress.pause(SystemClock.elapsedRealtime())
         state = state.copy(phase = SessionPhase.PAUSED, progress = progress, seconds = progress.elapsedMs / 1000, message = reason)
+        checkpoint()
+    }
+
+    fun discardDraft() {
+        if (state.phase != SessionPhase.PAUSED && state.phase != SessionPhase.RECOVERY_ERROR) return
+        try {
+            drafts.clear()
+            state = SessionUiState(message = "Черновик удалён.")
+        } catch (_: Exception) {
+            state = state.copy(message = "Не удалось удалить черновик.")
+        }
     }
 
     fun stopAndSave() {
@@ -98,15 +170,17 @@ class SessionController(
         if (state.phase != SessionPhase.PAUSED) return
         val snapshot = state
         if (snapshot.progress.sampleCount == 0) {
-            state = SessionUiState(message = "Нет успешных замеров — сессия не сохранена.")
+            state = snapshot.copy(message = "Нет успешных замеров. Продолжите сессию или удалите черновик.")
             return
         }
         state = state.copy(phase = SessionPhase.SAVING, message = "Сохраняем…")
         val signal = monitor.state.value
         scope.launch {
+            var saved = false
             try {
                 repository.save(SessionEntity(
-                    name = "Сессия · ${snapshot.mode}", timestamp = System.currentTimeMillis(),
+                    id = snapshot.sessionId,
+                    name = "Сессия · ${snapshot.mode}", timestamp = snapshot.startedAt,
                     mode = snapshot.mode, durationSec = snapshot.seconds,
                     avgPingMs = snapshot.progress.averageLatency(), maxPingMs = snapshot.progress.maxLatency,
                     lossPercent = snapshot.progress.failedPercent(), avgSpeedMbps = -1.0,
@@ -114,16 +188,20 @@ class SessionController(
                     dnsName = "Не определён", operator = signal.operator,
                     pingHistory = snapshot.progress.history.joinToString(",")
                 ))
+                saved = true
+                drafts.clear()
                 state = SessionUiState(message = "Сессия сохранена.")
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                state = snapshot.copy(phase = SessionPhase.PAUSED, message = "Не удалось сохранить сессию. Попробуйте ещё раз.")
+                state = if (saved) snapshot.copy(phase = SessionPhase.RECOVERY_ERROR, message = "Сессия сохранена, но черновик не удалён. Повторите восстановление.")
+                    else snapshot.copy(phase = SessionPhase.PAUSED, message = "Не удалось завершить сохранение. Попробуйте ещё раз.")
             }
         }
     }
 
     fun dispose() {
-        probeJob?.cancel(); tickerJob?.cancel()
+        pause("Сессия на паузе: экран закрыт.")
+        probeJob?.cancel(); tickerJob?.cancel(); recoveryJob?.cancel()
     }
 }

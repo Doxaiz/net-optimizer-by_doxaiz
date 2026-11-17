@@ -34,6 +34,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
     val state = controller.state
     var selected by remember { mutableStateOf<List<Long>>(emptyList()) }
     var detailId by remember { mutableStateOf<Long?>(null) }
+    var confirmDiscard by remember { mutableStateOf(false) }
     val detail = sessions.firstOrNull { it.id == detailId }
 
     LazyColumn(modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -45,6 +46,8 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(when (state.phase) {
+                        SessionPhase.RESTORING -> "ВОССТАНОВЛЕНИЕ"
+                        SessionPhase.RECOVERY_ERROR -> "ЧЕРНОВИК НЕДОСТУПЕН"
                         SessionPhase.IDLE -> "РУЧНАЯ СЕССИЯ"
                         SessionPhase.RUNNING -> "ИДЁТ ЗАМЕР"
                         SessionPhase.PAUSED -> "НА ПАУЗЕ"
@@ -52,7 +55,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
                     }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("%02d:%02d".format(state.seconds / 60, state.seconds % 60), style = MaterialTheme.typography.headlineMedium)
                     Text("TCP-задержка до Яндекса · замеров: ${state.progress.sampleCount}. Можно переключать вкладки; при сворачивании или заряде ниже 20% сессия ставится на паузу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Пока сессия не сохранена, её данные хранятся в памяти и могут исчезнуть при закрытии приложения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Черновик записывается на телефон примерно раз в 5 секунд и при паузе. При внезапном сбое последние данные могут не сохраниться; после восстановления замер остаётся на паузе.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     when (state.phase) {
                         SessionPhase.IDLE, SessionPhase.PAUSED -> {
@@ -62,6 +65,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
                             }, modifier = Modifier.fillMaxWidth()) { Text(if (state.phase == SessionPhase.IDLE) "Начать сессию" else "Продолжить") }
                             if (state.phase == SessionPhase.PAUSED) {
                                 OutlinedButton(onClick = controller::stopAndSave, modifier = Modifier.fillMaxWidth()) { Text("Остановить и сохранить") }
+                                TextButton(onClick = { confirmDiscard = true }, modifier = Modifier.fillMaxWidth()) { Text("Удалить черновик") }
                             }
                         }
                         SessionPhase.RUNNING -> {
@@ -70,7 +74,11 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
                                 Button(onClick = controller::stopAndSave, modifier = Modifier.weight(1f)) { Text("Сохранить") }
                             }
                         }
-                        SessionPhase.SAVING -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        SessionPhase.RESTORING, SessionPhase.SAVING -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        SessionPhase.RECOVERY_ERROR -> {
+                            OutlinedButton(onClick = controller::restoreDraft, modifier = Modifier.fillMaxWidth()) { Text("Повторить восстановление") }
+                            TextButton(onClick = { confirmDiscard = true }, modifier = Modifier.fillMaxWidth()) { Text("Удалить черновик") }
+                        }
                     }
                 }
             }
@@ -114,6 +122,15 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
                 }
             }
         }
+    }
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text("Удалить черновик?") },
+            text = { Text("Несохранённые данные этой сессии будут удалены. История сохранённых сессий не изменится.") },
+            confirmButton = { TextButton(onClick = { controller.discardDraft(); confirmDiscard = false }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Отмена") } }
+        )
     }
 }
 
