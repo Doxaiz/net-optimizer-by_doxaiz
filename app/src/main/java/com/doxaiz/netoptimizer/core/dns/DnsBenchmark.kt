@@ -29,12 +29,13 @@ object DnsCatalog {
  * Реальный замер DNS: отправляет настоящий DNS-запрос (UDP/53) на сервер
  * и меряет время ответа. Медиана из 5 попыток. Серверы замеряются параллельно.
  */
-class DnsBenchmark {
+class DnsBenchmark(private val context: android.content.Context) {
 
     suspend fun measure(server: DnsServer): Int = withContext(Dispatchers.IO) {
+        val network = com.doxaiz.netoptimizer.core.net.CellularNetwork.active(context) ?: return@withContext -1
         val times = mutableListOf<Int>()
         repeat(5) {
-            val t = measureOnce(server.ip)
+            val t = measureOnce(network, server.ip)
             if (t >= 0) times += t
         }
         if (times.isEmpty()) -1 else times.sorted()[times.size / 2]
@@ -46,9 +47,10 @@ class DnsBenchmark {
         }.awaitAll().sortedBy { if (it.ms < 0) Int.MAX_VALUE else it.ms }
     }
 
-    private fun measureOnce(ip: String): Int {
+    private fun measureOnce(network: android.net.Network, ip: String): Int {
         val socket = try { DatagramSocket() } catch (_: Exception) { return -1 }
         return try {
+            network.bindSocket(socket)
             socket.soTimeout = 1500
             val query = buildDnsQuery(randomDomain())
             val start = System.nanoTime()

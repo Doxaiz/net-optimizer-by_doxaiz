@@ -103,7 +103,7 @@ class SignalMonitor(private val context: Context) {
 
     private fun readCells() {
         if (!hasLocationPermission()) {
-            _state.value = _state.value.copy(hasPermission = false)
+            _state.value = _state.value.copy(hasPermission = false, rsrp = 0, rsrq = 0, sinr = 0, band = "—", networkType = "—")
             return
         }
         val cells: List<CellInfo> = try {
@@ -114,7 +114,10 @@ class SignalMonitor(private val context: Context) {
         } catch (_: Exception) {
             emptyList()
         }
-        if (cells.isEmpty()) return
+        if (cells.none { it.isRegistered && (it.cellIdentity is CellIdentityLte || it.cellIdentity is CellIdentityNr) }) {
+            _state.value = _state.value.copy(rsrp = 0, rsrq = 0, sinr = 0, band = "—", networkType = "—", neighbors = emptyList())
+            return
+        }
         updateFromCells(cells)
     }
 
@@ -130,8 +133,8 @@ class SignalMonitor(private val context: Context) {
             }
         }.distinct().take(4)
 
-        val nrInfo = cells.firstOrNull { it.cellIdentity is CellIdentityNr }
-        val lteInfo = cells.firstOrNull { it.cellIdentity is CellIdentityLte }
+        val nrInfo = cells.firstOrNull { it.isRegistered && it.cellIdentity is CellIdentityNr }
+        val lteInfo = cells.firstOrNull { it.isRegistered && it.cellIdentity is CellIdentityLte }
 
         if (nrInfo != null) {
             val id = nrInfo.cellIdentity as CellIdentityNr
@@ -154,7 +157,8 @@ class SignalMonitor(private val context: Context) {
             val id = lteInfo.cellIdentity as CellIdentityLte
             val s = lteInfo.cellSignalStrength as CellSignalStrengthLte
             val band = earfcnToBand(id.earfcn, isNr = false)
-            val lteA = cells.count { it.cellIdentity is CellIdentityLte } > 1
+            // Neighbouring LTE cells do not establish carrier aggregation.
+            val lteA = false
             _state.value = cur.copy(
                 rsrp = s.rsrp.takeIf { it != Int.MAX_VALUE } ?: cur.rsrp,
                 rsrq = s.rsrq.takeIf { it != Int.MAX_VALUE } ?: cur.rsrq,

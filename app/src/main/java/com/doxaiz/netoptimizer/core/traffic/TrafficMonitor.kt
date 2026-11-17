@@ -61,7 +61,6 @@ class TrafficMonitor(private val context: Context) {
         val caps = connectivity.getNetworkCapabilities(network) ?: return emptyList()
         val transport = when {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 0 // TRANSPORT_CELLULAR
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 1      // TRANSPORT_WIFI
             else -> return emptyList()
         }
         val pm = context.packageManager

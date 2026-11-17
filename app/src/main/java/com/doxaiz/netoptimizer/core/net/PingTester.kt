@@ -39,14 +39,16 @@ object PingCatalog {
  * TCP-пинг: меряет время установки соединения (без root ICMP недоступен).
  * Считает средний пинг, джиттер и потери (неудачные попытки).
  */
-class PingTester {
+class PingTester(private val context: android.content.Context) {
 
     suspend fun test(target: PingTarget, attempts: Int = 6): PingResult =
         withContext(Dispatchers.IO) {
+            val network = CellularNetwork.active(context)
+                ?: return@withContext PingResult(target, -1, 0, 100, false)
             val times = mutableListOf<Int>()
             var failed = 0
             repeat(attempts) {
-                val t = connectOnce(target.host, target.port)
+                val t = connectOnce(network, target.host, target.port)
                 if (t >= 0) times += t else failed++
             }
             val avg = if (times.isEmpty()) -1 else times.average().roundToInt()
@@ -65,11 +67,13 @@ class PingTester {
         }.awaitAll().toMap()
     }
 
-    private fun connectOnce(host: String, port: Int): Int {
+    private fun connectOnce(network: android.net.Network, host: String, port: Int): Int {
         val socket = Socket()
         return try {
+            val address = network.getAllByName(host).first()
+            network.bindSocket(socket)
             val start = System.nanoTime()
-            socket.connect(java.net.InetSocketAddress(host, port), 2500)
+            socket.connect(java.net.InetSocketAddress(address, port), 2500)
             ((System.nanoTime() - start) / 1_000_000).toInt()
         } catch (_: Exception) {
             -1

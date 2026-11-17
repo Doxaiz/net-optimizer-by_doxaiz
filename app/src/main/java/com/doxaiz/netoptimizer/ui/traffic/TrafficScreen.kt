@@ -3,6 +3,7 @@ package com.doxaiz.netoptimizer.ui.traffic
 import android.content.Intent
 import android.net.VpnService
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -100,7 +101,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
 
     LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Text("Кто ест мобильный интернет", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             if (newActivity != null) {
                 Card(
@@ -137,7 +138,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.height(8.dp))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.foundation.layout.Row(modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("all" to "Все", "active" to "Активные", "blocked" to "Заблокированные", "white" to "Белый список")
                     .forEach { (key, label) ->
                         FilterChip(selected = filter == key, onClick = { filter = key }, label = { Text(label) })
@@ -145,8 +146,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                if (vpnOn) "VPN-фаервол активен: заблокированные приложения не получают сеть, остальные работают как обычно."
-                else "Чтобы блокировать приложения, разреши VPN в системном диалоге (локально, без серверов).",
+                "Блокировка сети приложений временно недоступна: VPN требует безопасной переработки. Кнопка «Стоп» открывает системные настройки или использует Shizuku.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -221,7 +221,7 @@ private fun AppRow(app: AppTraffic, onToggleBlock: () -> Unit, onStop: () -> Uni
             Switch(
                 checked = !app.networkBlocked,
                 onCheckedChange = { onToggleBlock() },
-                enabled = !app.whitelisted
+                enabled = false
             )
         }
     }

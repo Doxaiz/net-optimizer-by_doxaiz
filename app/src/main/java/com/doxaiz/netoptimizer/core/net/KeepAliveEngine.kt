@@ -16,11 +16,10 @@ enum class KeepAliveProfile(val intervalMs: Long, val label: String) {
 }
 
 /**
- * Анти-сон модема: не даёт радиомодулю уходить в RRC_IDLE между пакетами.
- * Сверхлёгкие UDP-импульсы (32 байта) — убирает стартовую задержку 150–300 мс
- * на первом пакете и «замирание» 4G.
+ * Экспериментальные UDP-импульсы. Влияние на модем и задержку зависит от сети;
+ * улучшение не гарантируется. При заряде ниже 20% отправка приостанавливается.
  */
-class KeepAliveEngine {
+class KeepAliveEngine(private val context: android.content.Context) {
 
     private var job: Job? = null
 
@@ -41,7 +40,10 @@ class KeepAliveEngine {
 
     private fun pulse() {
         try {
+            val network = CellularNetwork.active(context) ?: return
+            if (!CellularNetwork.batteryOk(context)) return
             DatagramSocket().use { socket ->
+                network.bindSocket(socket)
                 socket.soTimeout = 1000
                 val data = ByteArray(32) { 0 }
                 socket.send(DatagramPacket(data, data.size, InetAddress.getByName("1.1.1.1"), 53))

@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 class DoxaizTileService : TileService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val keepAlive = KeepAliveEngine()
+    private val keepAlive by lazy { KeepAliveEngine(applicationContext) }
     private var active = false
 
     override fun onStartListening() {
@@ -34,9 +34,6 @@ class DoxaizTileService : TileService() {
         active = !active
         if (active) {
             keepAlive.start(scope, KeepAliveProfile.MAX)
-            if (!DoxaizVpnService.running) {
-                DoxaizVpnService.start(this, DoxaizVpnService.currentDns, DoxaizVpnService.blockedApps)
-            }
         } else {
             keepAlive.stop()
         }

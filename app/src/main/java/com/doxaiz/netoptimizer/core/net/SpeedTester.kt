@@ -16,9 +16,10 @@ data class SpeedResult(
  * (Bufferbloat — причина «скорость есть, а в игре лагает»).
  * При ошибках сети возвращает 0.0 вместо краша.
  */
-class SpeedTester {
+class SpeedTester(private val context: android.content.Context) {
 
     suspend fun test(): SpeedResult = withContext(Dispatchers.IO) {
+        if (CellularNetwork.active(context) == null) return@withContext SpeedResult(0.0, 0.0, 0)
         val down = safeDownload(10_000_000)
         val up = safeUpload()
         val bb = bufferbloat()
@@ -43,7 +44,8 @@ class SpeedTester {
     }
 
     private fun download(bytes: Int): Double {
-        val conn = URL("https://speed.cloudflare.com/__down?bytes=$bytes").openConnection() as HttpURLConnection
+        val network = CellularNetwork.active(context) ?: return 0.0
+        val conn = network.openConnection(URL("https://speed.cloudflare.com/__down?bytes=$bytes")) as HttpURLConnection
         conn.connectTimeout = 10000
         conn.readTimeout = 30000
         val start = System.nanoTime()
@@ -62,7 +64,8 @@ class SpeedTester {
 
     private fun upload(): Double {
         val bytes = 5_000_000
-        val conn = URL("https://speed.cloudflare.com/__up").openConnection() as HttpURLConnection
+        val network = CellularNetwork.active(context) ?: return 0.0
+        val conn = network.openConnection(URL("https://speed.cloudflare.com/__up")) as HttpURLConnection
         conn.requestMethod = "POST"
         conn.doOutput = true
         conn.connectTimeout = 10000
@@ -81,6 +84,8 @@ class SpeedTester {
         repeat(3) {
             val s = java.net.Socket()
             val t = try {
+                val network = CellularNetwork.active(context) ?: return 0
+                network.bindSocket(s)
                 val start = System.nanoTime()
                 s.connect(java.net.InetSocketAddress("1.1.1.1", 443), 2000)
                 ((System.nanoTime() - start) / 1_000_000).toInt()

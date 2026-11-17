@@ -42,7 +42,6 @@ import com.doxaiz.netoptimizer.core.net.ScenarioTester
 import com.doxaiz.netoptimizer.core.net.ScenarioVerdict
 import com.doxaiz.netoptimizer.core.net.SpeedResult
 import com.doxaiz.netoptimizer.core.net.SpeedTester
-import com.doxaiz.netoptimizer.core.net.WifiHint
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
@@ -57,14 +56,14 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val scope = rememberCoroutineScope()
     val signal by monitor.state.collectAsState()
 
-    var soundOn by remember { mutableStateOf(true) }
+    var soundOn by remember { mutableStateOf(false) }
     var vibOn by remember { mutableStateOf(false) }
     var netMode by remember { mutableStateOf(NetworkModePrefs.load(context)) }
     var netModeStatus by remember { mutableStateOf("") }
     var cellResetting by remember { mutableStateOf(false) }
-    var keepAliveOn by remember { mutableStateOf(true) }
+    var keepAliveOn by remember { mutableStateOf(false) }
     var dnsList by remember { mutableStateOf(DnsCatalog.servers) }
-    var selectedDns by remember { mutableStateOf<DnsServer?>(DnsCatalog.servers.first()) }
+    var selectedDns by remember { mutableStateOf<DnsServer?>(null) }
     var benching by remember { mutableStateOf(false) }
     var pingResults by remember { mutableStateOf<Map<String, PingResult>>(emptyMap()) }
     var pingTesting by remember { mutableStateOf(false) }
@@ -75,19 +74,17 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val dnsBlocked by DnsLog.blockedCount.collectAsState()
     var scenarioTesting by remember { mutableStateOf(false) }
 
-    val bench = remember { DnsBenchmark() }
-    val keepAliveEngine = remember { KeepAliveEngine() }
-    // Выбор DNS реально применяет его (перезапуск VPN, если он активен)
-    LaunchedEffect(selectedDns) {
-        val d = selectedDns
-        if (d != null && DoxaizVpnService.running) {
-            DoxaizVpnService.start(context, d.ip, DoxaizVpnService.blockedApps)
-        }
-    }
-    val pingTester = remember { PingTester() }
-    val speedTester = remember { SpeedTester() }
+    val bench = remember { DnsBenchmark(context) }
+    val keepAliveEngine = remember { KeepAliveEngine(context) }
+    val pingTester = remember { PingTester(context) }
+    val speedTester = remember { SpeedTester(context) }
 
     LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Text("ИНСТРУМЕНТЫ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text("Диагностика сети", style = MaterialTheme.typography.headlineSmall)
+            Text("Замеры выполняются только через мобильное подключение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         // Радар
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -95,7 +92,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     Text("Живой радар сигнала", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     RadarCanvas(rsrp = signal.rsrp, soundOn = soundOn, vibOn = vibOn)
-                    Text("${signal.rsrp} dBm", style = MaterialTheme.typography.headlineSmall)
+                    Text(if (signal.rsrp in -160..-30) "${signal.rsrp} dBm" else "Нет данных о сигнале", style = MaterialTheme.typography.headlineSmall)
                     if (signal.neighbors.isNotEmpty()) {
                         Text(
                             "Соседние соты: " + signal.neighbors.joinToString(" · "),
@@ -187,19 +184,20 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
-                    Text("Умный DNS — нажми, чтобы подключить", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Бенчмарк DNS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
+                    Text("Подключение DNS и блокировка трекеров временно отключены: VPN требует доработки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     dnsList.forEach { d ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable { selectedDns = d }.padding(vertical = 6.dp)
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
                         ) {
-                            RadioButton(selected = selectedDns?.name == d.name, onClick = { selectedDns = d })
+                            Text(if (selectedDns?.name == d.name) "★  " else "    ", color = MaterialTheme.colorScheme.primary)
                             Column(Modifier.weight(1f)) {
                                 Text(d.name)
                                 Text(d.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Text("${d.ms} мс", color = if (d.ms in 1..14) AccentGreen else AccentCyan)
+                            Text(if (d.ms > 0) "${d.ms} мс" else "—", color = if (d.ms in 1..14) AccentGreen else AccentCyan)
                         }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -234,7 +232,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     Spacer(Modifier.height(6.dp))
                     if (dnsEntries.isEmpty()) {
                         Text(
-                            "Пока пусто. Лог работает, когда VPN-фаервол Doxaiz активен (включи его на вкладке «Трафик»).",
+                            "VPN и журнал DNS временно отключены до безопасной реализации.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -263,14 +261,14 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
-                    Text("Спидтест и Bufferbloat", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Спидтест", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        speed?.let { "%.1f Мбит/с".format(it.downloadMbps) } ?: "—",
+                        speed?.takeIf { it.downloadMbps > 0 }?.let { "%.1f Мбит/с".format(it.downloadMbps) } ?: "Нет данных",
                         style = MaterialTheme.typography.headlineMedium
                     )
-                    if (speed != null) {
-                        Text("Отдача: %.1f Мбит/с · пинг под нагрузкой: %d мс".format(speed!!.uploadMbps, speed!!.bufferbloatMs), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (speed != null && speed!!.downloadMbps > 0) {
+                        Text("Отдача: ${if (speed!!.uploadMbps > 0) "%.1f Мбит/с".format(speed!!.uploadMbps) else "нет данных"} · TCP после теста: ${if (speed!!.bufferbloatMs > 0) "${speed!!.bufferbloatMs} мс" else "нет данных"} (не bufferbloat)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Spacer(Modifier.height(8.dp))
                     Button(
@@ -279,11 +277,6 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                             scope.launch {
                                 val r = speedTester.test()
                                 speed = r
-                                val cm = context.getSystemService(ConnectivityManager::class.java)
-                                val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-                                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) {
-                                    WifiHint.saveCellularSpeed(context, r.downloadMbps)
-                                }
                                 speedTesting = false
                             }
                         },
@@ -293,53 +286,11 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 }
             }
         }
-        // Потянет ли… (P0: идея из nPerf / Opensignal)
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Потянет ли…", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        "Честный вердикт по реальным замерам: 4K, звонок, игры, мессенджеры.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (scenarios != null) {
-                        scenarios!!.forEach { v ->
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 5.dp)) {
-                                Text(if (v.ok) "✅" else "❌", modifier = Modifier.padding(end = 8.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("${v.icon} ${v.name}", style = MaterialTheme.typography.bodyMedium)
-                                    Text(v.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    Button(
-                        onClick = {
-                            scenarioTesting = true
-                            scope.launch {
-                                val ping = pingTester.test(PingTarget("Яндекс", "yandex.ru", 443, ""))
-                                val spd = speedTester.test()
-                                scenarios = ScenarioTester.evaluate(
-                                    ping.avgMs, ping.jitterMs, ping.lossPercent,
-                                    spd.downloadMbps, spd.uploadMbps
-                                )
-                                scenarioTesting = false
-                            }
-                        },
-                        enabled = !scenarioTesting,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(if (scenarioTesting) "⏳ Проверяю…" else "🔮 Проверить сценарии") }
-                }
-            }
-        }
         // Пинг игр
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
-                    Text("Пинг игр и сервисов", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("TCP-задержка сайтов игр и сервисов (не игровых серверов)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     PingCatalog.targets.forEach { t ->
                         val r = pingResults[t.name]
@@ -349,9 +300,9 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                                 Text(t.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Text(
-                                r?.let { "${it.avgMs} мс · ±${it.jitterMs}" } ?: "—",
+                                r?.takeIf { it.avgMs >= 0 }?.let { "${it.avgMs} мс · ±${it.jitterMs}" } ?: "—",
                                 color = when {
-                                    r == null -> Color.Gray
+                                    r == null || r.avgMs < 0 -> Color.Gray
                                     r.avgMs <= 50 -> AccentGreen
                                     r.avgMs <= 100 -> AccentCyan
                                     else -> AccentRed
@@ -381,11 +332,11 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 Column(Modifier.padding(14.dp)) {
                     Text("USB-модем для ПК (Windows 10/11)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    Text("Статус: USB подключён · rndis0", color = AccentGreen)
-                    Text("Интернет на телефоне работает параллельно с ПК.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Состояние USB-модема не определяется", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Включите USB-модем в настройках Android. Проверьте соединение телефона и ПК.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    Text("Лучший DNS для ПК: 77.88.8.8 (резерв 1.1.1.1)")
-                    Text("Оптимальный MTU: ${profile?.recommendedMtu ?: 1440} — без фрагментации пакетов")
+                    Text("Пример DNS для ПК: 77.88.8.8 (резерв 1.1.1.1); лучший адрес зависит от сети.")
+                    Text("Пример MTU: ${profile?.recommendedMtu ?: 1440}; подходящее значение зависит от сети.")
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Настройка Windows: Параметры → Сеть → Ethernet → Remote NDIS → DNS вручную 77.88.8.8 / 1.1.1.1. MTU: netsh interface ipv4 set subinterface \"Remote NDIS\" mtu=${profile?.recommendedMtu ?: 1440} store=persistent",
@@ -430,8 +381,8 @@ private fun RadarCanvas(rsrp: Int, soundOn: Boolean = true, vibOn: Boolean = fal
     LaunchedEffect(rsrp, soundOn, vibOn) {
         while (true) {
             val strength = ((rsrp + 120f) / 50f).coerceIn(0f, 1f)
-            if (soundOn) Beeper.beep(strength)
-            if (vibOn && rsrp >= -75) Beeper.vibrate(context) // вибрация на максимуме
+            if (soundOn && rsrp in -160..-30) Beeper.beep(strength)
+            if (vibOn && rsrp in -75..-30) Beeper.vibrate(context) // вибрация на максимуме
             kotlinx.coroutines.delay(500)
         }
     }
