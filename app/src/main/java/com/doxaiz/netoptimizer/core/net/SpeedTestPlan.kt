@@ -1,7 +1,12 @@
 package com.doxaiz.netoptimizer.core.net
 
 /** Result of two independent transfers on the same mobile network. Null is not a zero speed. */
-data class SpeedResult(val downloadMbps: Double?, val uploadMbps: Double?, val status: SpeedStatus)
+data class SpeedResult(
+    val downloadMbps: Double?,
+    val uploadMbps: Double?,
+    val status: SpeedStatus,
+    val downloadLatency: LoadedLatency? = null
+)
 enum class SpeedStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, LOW_BATTERY }
 enum class SpeedDirection { DOWNLOAD, UPLOAD }
 

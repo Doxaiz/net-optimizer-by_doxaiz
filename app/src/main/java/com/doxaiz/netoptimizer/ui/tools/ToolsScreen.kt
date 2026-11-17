@@ -247,7 +247,25 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         }
                         if (speedError) Text("Не удалось выполнить тест. Попробуйте позже.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         Text("Сервер Cloudflare: до 10 МБ скачивания и 5 МБ отдачи плюс служебный трафик. Тест расходует мобильный интернет; соединение и ответ сервера входят во время замера. При сворачивании тест отменяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Буферблат пока не измеряется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        speed?.downloadLatency?.let { latency ->
+                            Spacer(Modifier.height(8.dp))
+                            Text("ЗАДЕРЖКА ПРИ СКАЧИВАНИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val delta = latency.differenceMs
+                            if (delta != null) {
+                                val deltaText = if (delta > 0) "+$delta" else delta.toString()
+                                val color = when {
+                                    delta > 100 -> MaterialTheme.colorScheme.error
+                                    delta > 30 -> MaterialTheme.colorScheme.primary
+                                    else -> AccentGreen
+                                }
+                                Text("${latency.idleMedianMs} → ${latency.loadedMedianMs} мс · $deltaText мс", style = MaterialTheme.typography.titleMedium, color = color)
+                                Text(if (delta > 100) "Сильный рост задержки в этом замере." else if (delta > 30) "Задержка заметно выросла в этом замере." else "Значительного роста задержки в этом замере не видно.", style = MaterialTheme.typography.bodySmall)
+                                Text("Успешных замеров: до ${latency.idleSuccesses}, при скачивании ${latency.loadedSuccesses}. Пороги оценки условные.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                Text("Недостаточно успешных замеров: до ${latency.idleSuccesses}, при скачивании ${latency.loadedSuccesses}; нужно не менее 3 в каждом режиме.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Text("Сравниваем время установления TCP-соединения с 1.1.1.1:443 до и во время чтения данных с Cloudflare. Это не ICMP-пинг и лишь ориентир на возможный буферблат: загрузка может не насытить канал, другие приложения и маршруты влияют на результат. Отдача под нагрузкой не проверяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {

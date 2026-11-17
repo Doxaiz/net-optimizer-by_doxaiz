@@ -7,6 +7,9 @@ import android.net.NetworkCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.net.HttpURLConnection
+import java.net.Socket
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.URL
 import java.security.SecureRandom
 import java.util.concurrent.CancellationException
@@ -20,10 +23,14 @@ class SpeedTester(private val context: Context) {
     suspend fun test(): SpeedResult = suspendCancellableCoroutine { continuation ->
         val cancelled = AtomicBoolean(false)
         val connection = AtomicReference<HttpURLConnection?>(null)
+        val probeSocket = AtomicReference<Socket?>(null)
         continuation.invokeOnCancellation {
             cancelled.set(true)
             // Disconnect off the main thread: a vendor's socket implementation can block.
-            Dispatchers.IO.dispatch(EmptyCoroutineContext, Runnable { connection.get()?.disconnect() })
+            Dispatchers.IO.dispatch(EmptyCoroutineContext, Runnable {
+                try { probeSocket.get()?.close() } catch (_: Exception) { }
+                connection.get()?.disconnect()
+            })
         }
         Dispatchers.IO.dispatch(EmptyCoroutineContext, Runnable {
             try {
@@ -44,6 +51,7 @@ class SpeedTester(private val context: Context) {
                     }
                 }
                 var registered = false
+                val latency = AtomicReference<LoadedLatency?>(null)
                 val result = try {
                     if (network != null && manager != null) {
                         manager.registerDefaultNetworkCallback(callback)
@@ -55,13 +63,15 @@ class SpeedTester(private val context: Context) {
                         batteryOk = { CellularNetwork.batteryOk(context) },
                         cancelled = { cancelled.get() },
                         transfer = { direction, check ->
-                            transfer(requireNotNull(network), direction, connection, cancelled, check)
+                            transfer(requireNotNull(network), direction, connection, probeSocket, cancelled, check, latency)
                         }
                     )
                 } finally {
                     if (registered) manager?.unregisterNetworkCallback(callback)
                 }
-                if (continuation.isActive) continuation.resume(result)
+                val completed = if (result.status == SpeedStatus.COMPLETED && result.downloadMbps != null)
+                    result.copy(downloadLatency = latency.get()) else result
+                if (continuation.isActive) continuation.resume(completed)
             } catch (_: CancellationException) {
                 // The caller cancelled; no result should be shown.
             } catch (e: Exception) {
@@ -74,9 +84,14 @@ class SpeedTester(private val context: Context) {
         network: Network,
         direction: SpeedDirection,
         current: AtomicReference<HttpURLConnection?>,
+        probeSocket: AtomicReference<Socket?>,
         cancelled: AtomicBoolean,
-        check: () -> Unit
+        check: () -> Unit,
+        latency: AtomicReference<LoadedLatency?>
     ): Double? {
+        val probe = if (direction == SpeedDirection.DOWNLOAD)
+            DownloadLatencyProbe(cancelled, check, { tcpConnect(network, probeSocket, cancelled) }) else null
+        probe?.measureIdle()
         val count = if (direction == SpeedDirection.DOWNLOAD) DOWNLOAD_BYTES else UPLOAD_BYTES
         val url = if (direction == SpeedDirection.DOWNLOAD)
             "https://speed.cloudflare.com/__down?bytes=$count" else "https://speed.cloudflare.com/__up"
@@ -120,6 +135,7 @@ class SpeedTester(private val context: Context) {
                         val n = input.read(buffer, 0, minOf(buffer.size, count - received))
                         if (n < 0) break
                         received += n
+                        probe?.onBytes(n)
                     }
                     if (received != count) return null
                     // With no Content-Length, reject excess data rather than reporting a partial response.
@@ -141,8 +157,32 @@ class SpeedTester(private val context: Context) {
             checkDeadline()
             return SpeedTestPlan.mbps(count.toLong(), System.nanoTime() - start)
         } finally {
-            current.compareAndSet(conn, null)
-            conn.disconnect()
+            try {
+                probe?.let { latency.set(it.finish()) }
+            } finally {
+                current.compareAndSet(conn, null)
+                conn.disconnect()
+            }
+        }
+    }
+
+    private fun tcpConnect(network: Network, current: AtomicReference<Socket?>, cancelled: AtomicBoolean): Int {
+        val socket = Socket()
+        current.set(socket)
+        return try {
+            if (cancelled.get()) throw CancellationException()
+            network.bindSocket(socket)
+            val target = InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1))
+            val start = System.nanoTime()
+            socket.connect(InetSocketAddress(target, 443), 1_500)
+            ((System.nanoTime() - start) / 1_000_000).toInt()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            -1
+        } finally {
+            current.compareAndSet(socket, null)
+            try { socket.close() } catch (_: Exception) { }
         }
     }
 
