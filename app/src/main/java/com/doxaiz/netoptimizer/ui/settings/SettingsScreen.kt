@@ -180,6 +180,9 @@ fun SettingsScreen(
             }
         }
         item {
+            Card(modifier = Modifier.fillMaxWidth()) { Diagnostics() }
+        }
+        item {
             Text(
                 "Net Optimizer by Doxaiz · v1.1.1 · Open Source\n100% бесплатно, без регистрации и рекламы. Данные — только на телефоне.",
                 style = MaterialTheme.typography.bodySmall,

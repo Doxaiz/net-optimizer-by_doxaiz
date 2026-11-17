@@ -6,11 +6,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import com.doxaiz.netoptimizer.core.diagnostics.CrashLog
+import com.doxaiz.netoptimizer.ui.settings.Diagnostics
 import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.core.util.ThemePrefs
 import com.doxaiz.netoptimizer.ui.DoxaizNav
@@ -25,12 +28,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestNeededPermissions()
         setContent {
+            var showRecovery by remember { mutableStateOf(CrashLog.read(this) != null) }
             var themeKind by remember { mutableStateOf(ThemePrefs.load(this)) }
             var onboarded by remember { mutableStateOf(OnboardingPrefs.isDone(this)) }
+            LaunchedEffect(showRecovery) {
+                if (!showRecovery) requestNeededPermissions()
+            }
             DoxaizTheme(themeKind) {
-                if (!onboarded) {
+                if (showRecovery) {
+                    Diagnostics(onContinue = { showRecovery = false })
+                } else if (!onboarded) {
                     OnboardingScreen(onDone = { onboarded = true })
                 } else {
                     DoxaizNav(onThemeChange = { themeKind = it })
