@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -32,9 +34,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.doxaiz.netoptimizer.DoxaizApp
+import com.doxaiz.netoptimizer.core.session.SessionController
+import com.doxaiz.netoptimizer.core.session.SessionPhase
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
 import com.doxaiz.netoptimizer.ui.home.HomeScreen
 import com.doxaiz.netoptimizer.ui.sessions.SessionsScreen
@@ -57,13 +64,30 @@ private val tabs = listOf(
 @Composable
 fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
     var selected by rememberSaveable { mutableStateOf(0) }
-    // Единый монитор сигнала на всё приложение: одна регистрация колбэка,
-    // без переподписок при переключении вкладок
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val monitor = remember { SignalMonitor(context) }
-    LaunchedEffect(Unit) { monitor.start(scope) }
-    DisposableEffect(Unit) { onDispose { monitor.stop() } }
+    val repository = remember { (context.applicationContext as DoxaizApp).sessionRepository }
+    val session = remember { SessionController(context.applicationContext, scope, repository, monitor) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, monitor, session) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> monitor.start(scope)
+                Lifecycle.Event.ON_STOP -> {
+                    session.pause("Сессия на паузе: приложение не на экране. Сохраните её или продолжите вручную.")
+                    monitor.stop()
+                }
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            monitor.stop()
+            session.dispose()
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -76,7 +100,12 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
                     NavigationBarItem(
                         selected = selected == index,
                         onClick = { selected = index },
-                        icon = { Icon(tab.icon, contentDescription = tab.title) },
+                        icon = {
+                            val measuring = index == 3 && session.state.phase == SessionPhase.RUNNING
+                            BadgedBox(badge = { if (measuring) Badge() }) {
+                                Icon(tab.icon, contentDescription = if (measuring) "Сессии: идёт замер" else tab.title)
+                            }
+                        },
                         label = { Text(tab.title, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 10.sp) }
                     )
                 }
@@ -105,7 +134,7 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
                 2 -> TrafficScreen(modifier = Modifier.padding(padding))
                 3 -> SessionsScreen(
                     modifier = Modifier.padding(padding),
-                    monitor = monitor
+                    controller = session
                 )
                 4 -> SettingsScreen(
                     modifier = Modifier.padding(padding),

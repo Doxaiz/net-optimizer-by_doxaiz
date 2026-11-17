@@ -11,6 +11,8 @@ import android.telephony.CellSignalStrengthNr
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,14 +51,12 @@ class SignalMonitor(private val context: Context) {
     private val _state = MutableStateFlow(SignalState())
     val state: StateFlow<SignalState> = _state
 
-    @Volatile
-    private var running = false
+    private var pollingJob: Job? = null
 
     fun start(scope: CoroutineScope) {
-        if (running) return
-        running = true
-        scope.launch {
-            while (running) {
+        if (pollingJob?.isActive == true) return
+        pollingJob = scope.launch {
+            while (isActive) {
                 updateTemperature()
                 updateOperator()
                 readCells()
@@ -66,7 +66,8 @@ class SignalMonitor(private val context: Context) {
     }
 
     fun stop() {
-        running = false
+        pollingJob?.cancel()
+        pollingJob = null
     }
 
     private fun hasLocationPermission(): Boolean =

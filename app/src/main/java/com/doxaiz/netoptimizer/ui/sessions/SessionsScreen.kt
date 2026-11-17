@@ -1,6 +1,5 @@
 package com.doxaiz.netoptimizer.ui.sessions
 
-import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,51 +14,27 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.DoxaizApp
-import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
-import com.doxaiz.netoptimizer.core.data.SessionEntity
-import com.doxaiz.netoptimizer.core.net.CellularNetwork
-import com.doxaiz.netoptimizer.core.net.PingTarget
-import com.doxaiz.netoptimizer.core.net.PingTester
+import com.doxaiz.netoptimizer.core.session.SessionController
+import com.doxaiz.netoptimizer.core.session.SessionPhase
 import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.ui.home.WorkMode
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 @Composable
-fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
+fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController) {
     val context = LocalContext.current
     val repo = remember { (context.applicationContext as DoxaizApp).sessionRepository }
     val sessions by repo.observeAll().collectAsState(initial = emptyList())
-    val signal by monitor.state.collectAsState()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    var active by remember { mutableStateOf(false) }
-    var start by remember { mutableLongStateOf(0L) }
-    var seconds by remember { mutableLongStateOf(0L) }
-    var history by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var losses by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var message by remember { mutableStateOf("") }
+    val state = controller.state
     var selected by remember { mutableStateOf<List<Long>>(emptyList()) }
     var detailId by remember { mutableStateOf<Long?>(null) }
     val detail = sessions.firstOrNull { it.id == detailId }
-
-    LaunchedEffect(active) {
-        if (active) {
-            val tester = PingTester(context)
-            while (true) {
-                seconds = (SystemClock.elapsedRealtime() - start) / 1000
-                val result = tester.test(PingTarget("Яндекс", "yandex.ru", 443, ""))
-                if (result.avgMs >= 0) history = (history + result.avgMs).takeLast(120)
-                if (result.lossPercent >= 0) losses = (losses + result.lossPercent).takeLast(120)
-                seconds = (SystemClock.elapsedRealtime() - start) / 1000
-                delay(5000)
-            }
-        }
-    }
 
     LazyColumn(modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -69,34 +44,33 @@ fun SessionsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(if (active) "ИДЁТ ЗАМЕР" else "РУЧНАЯ СЕССИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("%02d:%02d".format(seconds / 60, seconds % 60), style = MaterialTheme.typography.headlineMedium)
-                    Text("TCP-задержка до Яндекса · замеров: ${history.size}. Сессия работает только на этом экране и прекращается при выходе.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    if (!active) {
-                        Button(onClick = {
-                            if (CellularNetwork.active(context) == null) message = "Подключите мобильный интернет."
-                            else { history = emptyList(); losses = emptyList(); seconds = 0; start = SystemClock.elapsedRealtime(); message = ""; active = true }
-                        }, modifier = Modifier.fillMaxWidth()) { Text("Начать сессию") }
-                    } else {
-                        Button(onClick = {
-                            active = false
-                            seconds = (SystemClock.elapsedRealtime() - start) / 1000
-                            if (history.isEmpty()) message = "Нет успешных замеров — сессия не сохранена."
-                            else {
-                                val values = history
+                    Text(when (state.phase) {
+                        SessionPhase.IDLE -> "РУЧНАЯ СЕССИЯ"
+                        SessionPhase.RUNNING -> "ИДЁТ ЗАМЕР"
+                        SessionPhase.PAUSED -> "НА ПАУЗЕ"
+                        SessionPhase.SAVING -> "СОХРАНЕНИЕ"
+                    }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("%02d:%02d".format(state.seconds / 60, state.seconds % 60), style = MaterialTheme.typography.headlineMedium)
+                    Text("TCP-задержка до Яндекса · замеров: ${state.progress.sampleCount}. Можно переключать вкладки; при сворачивании или заряде ниже 20% сессия ставится на паузу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Пока сессия не сохранена, её данные хранятся в памяти и могут исчезнуть при закрытии приложения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    when (state.phase) {
+                        SessionPhase.IDLE, SessionPhase.PAUSED -> {
+                            Button(onClick = {
                                 val mode = OnboardingPrefs.loadMode(context)?.let { runCatching { WorkMode.valueOf(it).label }.getOrNull() } ?: "Обычный"
-                                val snapshot = signal
-                                scope.launch {
-                                    repo.save(SessionEntity(name = "Сессия · $mode", timestamp = System.currentTimeMillis(), mode = mode, durationSec = seconds,
-                                        avgPingMs = values.average().toInt(), maxPingMs = values.maxOrNull() ?: -1,
-                                        lossPercent = if (losses.isEmpty()) -1 else losses.average().toInt(), avgSpeedMbps = -1.0,
-                                        dropsCount = -1, avgRsrp = snapshot.rsrp, band = snapshot.band, dnsName = "Не определён",
-                                        operator = snapshot.operator, pingHistory = values.joinToString(",")))
-                                    message = "Сессия сохранена."
-                                }
+                                controller.startOrResume(mode)
+                            }, modifier = Modifier.fillMaxWidth()) { Text(if (state.phase == SessionPhase.IDLE) "Начать сессию" else "Продолжить") }
+                            if (state.phase == SessionPhase.PAUSED) {
+                                OutlinedButton(onClick = controller::stopAndSave, modifier = Modifier.fillMaxWidth()) { Text("Остановить и сохранить") }
                             }
-                        }, modifier = Modifier.fillMaxWidth()) { Text("Остановить и сохранить") }
+                        }
+                        SessionPhase.RUNNING -> {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { controller.pause() }, modifier = Modifier.weight(1f)) { Text("Пауза") }
+                                Button(onClick = controller::stopAndSave, modifier = Modifier.weight(1f)) { Text("Сохранить") }
+                            }
+                        }
+                        SessionPhase.SAVING -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
                 }
             }
