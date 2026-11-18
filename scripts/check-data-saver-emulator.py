@@ -20,6 +20,9 @@ try:
     tap("Продолжить")
     tap("Снизить нагрузку на сеть")
     verify("Экономия трафика Android: выключена")
+    # On smaller Android 12 displays the button is below the fold.
+    adb("shell", "input", "swipe", "500", "1600", "500", "850", "450")
+    time.sleep(1)
     tap("Настроить экономию трафика")
     # The exact settings screen is vendor-dependent; on AOSP it must leave the app.
     focus = adb("shell", "dumpsys", "activity", "activities")
@@ -29,6 +32,9 @@ try:
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     time.sleep(3)
     alive()
+    # Return to the status label if scrolling moved it above the viewport.
+    adb("shell", "input", "swipe", "500", "850", "500", "1600", "450")
+    time.sleep(1)
     verify("Экономия трафика Android: включена")
     print("Data Saver settings opened and status refreshed after returning")
 finally:
