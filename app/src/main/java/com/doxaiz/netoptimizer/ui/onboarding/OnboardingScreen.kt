@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.location.LocationManager
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,7 +38,6 @@ fun OnboardingScreen(onDone: () -> Unit) {
     var cellAccess by remember { mutableStateOf(hasLocation(context)) }
     var locationEnabled by remember { mutableStateOf(isLocationEnabled(context)) }
     var usageAccess by remember { mutableStateOf(traffic.hasUsageAccess()) }
-    var batteryExempt by remember { mutableStateOf(isBatteryExempt(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
     var message by remember { mutableStateOf<String?>(null) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -48,7 +46,6 @@ fun OnboardingScreen(onDone: () -> Unit) {
         cellAccess = hasLocation(context)
         locationEnabled = isLocationEnabled(context)
         usageAccess = traffic.hasUsageAccess()
-        batteryExempt = isBatteryExempt(context)
         shizukuStatus = ShizukuManager.status()
     }
     DisposableEffect(lifecycle, traffic) {
@@ -129,18 +126,13 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         Text("Дополнительно", style = MaterialTheme.typography.titleMedium)
                         val ready = shizukuStatus == ShizukuManager.Status.READY
                         SetupItem("Shizuku · не обязательно", when (shizukuStatus) {
-                            ShizukuManager.Status.READY -> "Подключён. Остановка приложений — только с подтверждением."
+                            ShizukuManager.Status.READY -> "Подключён. Действия выполняются только после подтверждения."
                             ShizukuManager.Status.NO_PERMISSION -> "Запущен. Можно разрешить дополнительный доступ."
-                            else -> "Для остановки выбранных приложений. Установите и запустите Shizuku по его инструкции, затем вернитесь сюда. Без него доступны системные настройки."
+                            else -> "Для управления выбранными приложениями и экономией трафика. Без него используйте настройки Android."
                         }, ready, if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) "Разрешить" else "Установить или открыть") {
                             if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) ShizukuManager.requestPermission(1001)
                             else if (!ShizukuManager.openAppOrStore(context)) message = "Не удалось открыть Shizuku. Найдите его в магазине приложений или на GitHub."
                         }
-                        HorizontalDivider()
-                        Text("Работа в фоне: пока недоступна", style = MaterialTheme.typography.titleSmall)
-                        Text("Замеры работают на экране. Исключение из оптимизации батареи не включает фоновую работу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (batteryExempt) "Android: ограничение батареи снято." else "Android: ограничение батареи не снято (не обязательно).", style = MaterialTheme.typography.bodySmall)
-                        OutlinedButton(onClick = { if (!requestIgnoreBattery(context)) message = "Откройте настройки батареи приложения вручную." }) { Text("Настройки батареи") }
                     }
                 }
             }
@@ -184,14 +176,6 @@ private fun openAppDetails(context: Context): Boolean = open(context, Intent(Set
     data = Uri.parse("package:${context.packageName}")
 })
 
-private fun requestIgnoreBattery(context: Context): Boolean = open(context, Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-    data = Uri.parse("package:${context.packageName}")
-})
-
 private fun open(context: Context, intent: Intent): Boolean = try {
     context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true
-} catch (_: Exception) { false }
-
-private fun isBatteryExempt(context: Context): Boolean = try {
-    context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
 } catch (_: Exception) { false }
