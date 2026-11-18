@@ -7,6 +7,19 @@ local.properties
 *.iml
 *.apk
 *.aab
-# Do not add new signing keys or credential files. The legacy tracked key requires rotation.
+# Credentials, private keys and generated diagnostics must never be committed.
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.pem
+*.pk8
+*.key
+.env
+.env.*
+!.env.example
+keystore.properties
+signing.properties
+*.log
+__pycache__/
+*.py[cod]
