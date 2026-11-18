@@ -20,6 +20,8 @@ import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
 import com.doxaiz.netoptimizer.core.dns.DnsServer
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
+import com.doxaiz.netoptimizer.core.net.BatteryHealth
+import android.os.SystemClock
 import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
 import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
 import com.doxaiz.netoptimizer.core.net.KeepAliveStatus
@@ -109,7 +111,11 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 } else {
                     lines += "Сравнение недоступно: замер не удался или мобильная сеть изменилась."
                 }
-                if (signal.temperatureC > 42f) lines += "Температура батареи ${signal.temperatureC} °C: дайте устройству остыть."
+                signal.battery?.temperatureTenths?.takeIf {
+                    it > 420 && BatteryHealth.isFresh(signal.batteryObservedAtMs, 0L, SystemClock.elapsedRealtime())
+                }?.let { temperature ->
+                    lines += "Температура батареи %.1f °C: дайте устройству остыть.".format(temperature / 10.0)
+                }
                 report = lines
             } finally { busy = false }
         }

@@ -10,6 +10,8 @@ import android.telephony.CellSignalStrengthLte
 import android.telephony.CellSignalStrengthNr
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
+import com.doxaiz.netoptimizer.core.net.BatteryHealth
+import com.doxaiz.netoptimizer.core.net.BatterySnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -38,8 +40,8 @@ data class SignalState(
     val is5g: Boolean = false,
     val isLteA: Boolean = false,
     val neighbors: List<String> = emptyList(), // соседние соты: "PCI 123 · B3"
-    val temperatureC: Float = 0f,
-    val batteryLevel: Int = -1, // % заряда
+    val battery: BatterySnapshot? = null,
+    val batteryObservedAtMs: Long? = null,
     val hasPermission: Boolean = false
 )
 
@@ -83,22 +85,18 @@ class SignalMonitor(private val context: Context) {
             context, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
-    /** Температура и заряд батареи (порог тревоги для USB-модема — 42°C) */
-    private fun updateTemperature() {
-        try {
-            val intent = context.registerReceiver(
-                null,
-                android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+    /** Battery temperature is reported by Android in tenths of a degree. */
+    private suspend fun updateTemperature() {
+        val snapshot = try {
+            val intent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            BatteryHealth.fromRaw(
+                intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1,
+                intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1,
+                intent?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
             )
-            val tenths = intent?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
-            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
-            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
-            val percent = if (level >= 0 && scale > 0) (level.toLong() * 100 / scale).coerceIn(0, 100).toInt() else -1
-            _state.value = _state.value.copy(
-                temperatureC = if (tenths in -400..1000) tenths / 10f else 0f,
-                batteryLevel = percent
-            )
-        } catch (_: Exception) { _state.value = _state.value.copy(temperatureC = 0f, batteryLevel = -1) }
+        } catch (_: Exception) { BatterySnapshot(null, null) }
+        currentCoroutineContext().ensureActive()
+        _state.value = _state.value.copy(battery = snapshot, batteryObservedAtMs = android.os.SystemClock.elapsedRealtime())
     }
 
     private fun updateOperator() {

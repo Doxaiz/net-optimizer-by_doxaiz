@@ -8,6 +8,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Build
@@ -21,6 +23,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -33,7 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
+import android.os.SystemClock
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -43,6 +51,11 @@ import com.doxaiz.netoptimizer.DoxaizApp
 import com.doxaiz.netoptimizer.core.session.SessionController
 import com.doxaiz.netoptimizer.core.session.SessionPhase
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
+import com.doxaiz.netoptimizer.core.net.BatteryHealth
+import com.doxaiz.netoptimizer.core.net.BatterySnapshot
+import com.doxaiz.netoptimizer.core.net.BatteryWarning
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.doxaiz.netoptimizer.ui.home.HomeScreen
 import com.doxaiz.netoptimizer.ui.sessions.SessionsScreen
 import com.doxaiz.netoptimizer.ui.settings.SettingsScreen
@@ -70,11 +83,24 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
     val repository = remember { (context.applicationContext as DoxaizApp).sessionRepository }
     val session = remember { SessionController(context.applicationContext, scope, repository, monitor) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val signal by monitor.state.collectAsState()
+    var foregroundSince by remember(lifecycle) { mutableStateOf<Long?>(null) }
+    var batteryClock by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(foregroundSince) {
+        if (foregroundSince != null) while (isActive) {
+            batteryClock = SystemClock.elapsedRealtime()
+            delay(5_000)
+        }
+    }
     DisposableEffect(lifecycle, monitor, session) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> monitor.start(scope)
+                Lifecycle.Event.ON_START -> {
+                    foregroundSince = SystemClock.elapsedRealtime()
+                    monitor.start(scope)
+                }
                 Lifecycle.Event.ON_STOP -> {
+                    foregroundSince = null
                     session.pause("Сессия на паузе: приложение не на экране. Сохраните её или продолжите вручную.")
                     monitor.stop()
                 }
@@ -90,9 +116,18 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
     }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Net Optimizer by Doxaiz") }
-            )
+            Column {
+                TopAppBar(title = { Text("Net Optimizer by Doxaiz") })
+                val now = maxOf(batteryClock, SystemClock.elapsedRealtime())
+                val start = foregroundSince
+                if (BatteryHealth.isFresh(signal.batteryObservedAtMs, start, now)) {
+                    signal.battery?.let { BatteryWarningBanner(it) }
+                } else if (start != null && now >= start && now - start > BatteryHealth.MAX_READING_AGE_MS) {
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+                        Text("Нет свежих данных батареи; некоторые сетевые проверки могут быть недоступны.", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         },
         bottomBar = {
             NavigationBar {
@@ -140,6 +175,24 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
                     modifier = Modifier.padding(padding),
                     onThemeChange = onThemeChange
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryWarningBanner(snapshot: BatterySnapshot) {
+    val warnings = BatteryHealth.warnings(snapshot)
+    if (warnings.isEmpty()) return
+    Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            warnings.forEach { warning ->
+                val text = when (warning) {
+                    BatteryWarning.UNKNOWN_CHARGE -> "Заряд батареи недоступен: сетевые проверки могут не запускаться."
+                    BatteryWarning.LOW_CHARGE -> "Заряд ${snapshot.percent}%: ниже 20%, сетевые проверки приостанавливаются."
+                    BatteryWarning.HIGH_TEMPERATURE -> "Температура батареи %.1f °C: дайте устройству остыть.".format(snapshot.temperatureTenths!! / 10.0)
+                }
+                Text(text, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

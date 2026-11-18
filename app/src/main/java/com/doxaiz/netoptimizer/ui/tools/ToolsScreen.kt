@@ -57,6 +57,7 @@ import com.doxaiz.netoptimizer.core.net.PingTester
 import com.doxaiz.netoptimizer.core.net.SpeedResult
 import com.doxaiz.netoptimizer.core.net.SpeedTester
 import com.doxaiz.netoptimizer.core.net.SpeedStatus
+import com.doxaiz.netoptimizer.core.net.BatteryHealth
 import com.doxaiz.netoptimizer.core.net.SpeedDiagnostics
 import com.doxaiz.netoptimizer.core.net.SpeedHint
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
@@ -213,6 +214,9 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             }
             if (section == ToolsSection.SIGNAL) item {
                 SignalHistoryCard(signalHistory, signalClock)
+            }
+            if (section == ToolsSection.SIGNAL) item {
+                BatteryStatusCard(signal, maxOf(signalClock, SystemClock.elapsedRealtime()))
             }
             // Стабилизация 4G/5G
             if (section == ToolsSection.SIGNAL) item {
@@ -557,6 +561,27 @@ private fun SignalHistoryCard(points: List<SignalObservation>, nowMs: Long) {
                 Text("Прошлое ← → сейчас · сверху −30, снизу −160 дБм. Разрывы — нет данных, большой перерыв или смена 4G/5G.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text("Снимки опроса примерно раз в 3 с, до 2 минут и только пока открыт этот раздел. Android может повторять старые данные; при переключении сот значения могут меняться. При выходе история очищается.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun BatteryStatusCard(signal: SignalState, nowMs: Long) {
+    val fresh = BatteryHealth.isFresh(signal.batteryObservedAtMs, 0L, nowMs)
+    val battery = signal.battery.takeIf { fresh }
+    val percent = battery?.percent
+    val temperature = battery?.temperatureTenths
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("БАТАРЕЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Заряд: ${percent?.let { "$it%" } ?: "нет свежих данных"}",
+                color = when { percent == null -> MaterialTheme.colorScheme.onSurfaceVariant; percent < 20 -> MaterialTheme.colorScheme.error; else -> MaterialTheme.colorScheme.primary },
+                style = MaterialTheme.typography.bodyMedium)
+            Text("При заряде ниже 20% или недоступном уровне сетевые проверки приостанавливаются или не запускаются.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Температура: ${temperature?.let { "%.1f °C".format(it / 10.0) } ?: "нет свежих данных"}",
+                color = when { temperature == null -> MaterialTheme.colorScheme.onSurfaceVariant; temperature > 420 -> MaterialTheme.colorScheme.error; else -> MaterialTheme.colorScheme.primary },
+                style = MaterialTheme.typography.bodyMedium)
+            Text("Предупреждение появляется при температуре батареи выше 42 °C. Это показание Android, а не температура модема.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
