@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import java.util.Calendar
+import java.time.ZoneId
 
 /** One row per UID: shared UIDs are deliberately never attributed to one arbitrary app. */
 data class AppTraffic(
@@ -36,7 +36,7 @@ data class AppTraffic(
 }
 
 enum class TrafficSummaryStatus { READY, NO_ACCESS, UNAVAILABLE }
-data class TrafficSummary(val status: TrafficSummaryStatus, val apps: List<AppTraffic> = emptyList())
+data class TrafficSummary(val status: TrafficSummaryStatus, val apps: List<AppTraffic> = emptyList(), val window: TrafficWindow? = null)
 
 class TrafficMonitor(private val context: Context) {
     private val protectedPackages = setOf("com.android.phone", "com.android.systemui", "com.google.android.dialer", "com.samsung.android.dialer")
@@ -78,19 +78,15 @@ class TrafficMonitor(private val context: Context) {
         }
     }.flowOn(Dispatchers.IO)
 
-    /** Historical mobile bytes, one query, for the current local day; Android may report with a delay. */
-    suspend fun today(): TrafficSummary = withContext(Dispatchers.IO) {
+    /** Historical mobile bytes for a calendar period; Android may report with a delay. */
+    suspend fun summary(period: TrafficPeriod): TrafficSummary = withContext(Dispatchers.IO) {
         if (!hasUsageAccess()) return@withContext TrafficSummary(TrafficSummaryStatus.NO_ACCESS)
         val manager = context.getSystemService(NetworkStatsManager::class.java)
             ?: return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
-        val now = System.currentTimeMillis()
-        val start = Calendar.getInstance().apply {
-            timeInMillis = now
-            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+        val window = TrafficPeriods.window(period, System.currentTimeMillis(), ZoneId.systemDefault())
         try {
             @Suppress("DEPRECATION")
-            val stats = manager.querySummary(ConnectivityManager.TYPE_MOBILE, null, start, now)
+            val stats = manager.querySummary(ConnectivityManager.TYPE_MOBILE, null, window.startMs, window.endMs)
                 ?: return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
             val totals = TrafficTotals()
             stats.use {
@@ -105,6 +101,7 @@ class TrafficMonitor(private val context: Context) {
             if (!hasUsageAccess()) return@withContext TrafficSummary(TrafficSummaryStatus.NO_ACCESS)
             val pm = context.packageManager
             val apps = totals.snapshot().mapNotNull { (uid, amount) ->
+                currentCoroutineContext().ensureActive()
                 if (amount.first == 0L && amount.second == 0L) return@mapNotNull null
                 val packages = if (uid >= 0) (pm.getPackagesForUid(uid)?.toList() ?: emptyList()).sorted() else emptyList()
                 val info = if (packages.size == 1) try { pm.getApplicationInfo(packages.first(), 0) } catch (_: Exception) { null } else null
@@ -119,7 +116,7 @@ class TrafficMonitor(private val context: Context) {
                     packages.any { it in protectedPackages } || (info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
                 AppTraffic(uid, label, packages, amount.first, amount.second, automaticProtection)
             }.sortedByDescending { it.totalBytes }
-            TrafficSummary(TrafficSummaryStatus.READY, apps)
+            TrafficSummary(TrafficSummaryStatus.READY, apps, window)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {

@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -25,10 +26,17 @@ import com.doxaiz.netoptimizer.core.traffic.MobileRate
 import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummaryStatus
+import com.doxaiz.netoptimizer.core.traffic.TrafficPeriod
+import com.doxaiz.netoptimizer.core.traffic.TrafficWindow
+import com.doxaiz.netoptimizer.core.traffic.saturatedAdd
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun TrafficScreen(modifier: Modifier = Modifier) {
@@ -42,6 +50,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
     var summary by remember { mutableStateOf<TrafficSummary?>(null) }
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
+    var period by rememberSaveable { mutableStateOf(TrafficPeriod.TODAY) }
     var protectedApps by remember { mutableStateOf(monitor.protectedByUser()) }
     var filter by remember { mutableStateOf("all") }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -66,11 +75,11 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
             history = if (current == null) emptyList() else (history + current).takeLast(30)
         }
     }
-    LaunchedEffect(monitor, foreground, refresh) {
+    LaunchedEffect(monitor, foreground, refresh, period) {
         if (foreground) {
             loading = true
             summary = null
-            try { summary = monitor.today() } finally { loading = false }
+            try { summary = monitor.summary(period) } finally { loading = false }
         }
     }
 
@@ -120,8 +129,22 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("РАСХОД ПРИЛОЖЕНИЙ ЗА СЕГОДНЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("С полуночи по местному времени, только мобильные данные. Android может обновлять статистику с задержкой; это не текущая скорость. Показания могут отличаться от счёта оператора.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("РАСХОД МОБИЛЬНЫХ ДАННЫХ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TrafficPeriod.entries.forEach { choice ->
+                            FilterChip(selected = period == choice, onClick = { period = choice }, label = { Text(choice.label) })
+                        }
+                    }
+                    Text("7 дней включают сегодня; месяц считается с первого числа. Данные относятся только к мобильным сетям и могут обновляться с задержкой. Это не текущая скорость и не счёт оператора.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!loading && summary?.status == TrafficSummaryStatus.READY) {
+                        summary?.window?.let { Text("Период: ${formatWindow(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        val apps = summary?.apps.orEmpty()
+                        if (apps.isNotEmpty()) {
+                            val total = apps.fold(0L) { sum, app -> saturatedAdd(sum, app.totalBytes) }
+                            Text("Всего по доступным записям: ${formatBytes(total)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                            Text("Включает доступные системные UID и раздачу, если Android их предоставил; статистика может быть неполной.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     when {
                         loading -> Text("Получаем статистику…", style = MaterialTheme.typography.bodySmall)
                         summary?.status == TrafficSummaryStatus.NO_ACCESS -> {
@@ -144,7 +167,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
             Text("Белый список защищает от остановки в этом приложении. Блокировка сети пока недоступна. Системные компоненты и общие UID защищены автоматически.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             if (!loading && summary?.status == TrafficSummaryStatus.READY && shown.isEmpty() && filter == "white") {
-                Text("Защищённых записей с расходом за сегодня нет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Защищённых записей с расходом за выбранный период нет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         items(shown, key = { it.uid }) { app ->
@@ -178,6 +201,11 @@ private fun TrafficRow(app: AppTraffic, userProtected: Boolean, onProtection: (B
             }
         }
     }
+}
+
+private fun formatWindow(window: TrafficWindow): String {
+    val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", Locale.getDefault()).withZone(ZoneId.of(window.zoneId))
+    return "${formatter.format(Instant.ofEpochMilli(window.startMs))} — ${formatter.format(Instant.ofEpochMilli(window.endMs))}"
 }
 
 private fun formatBytes(bytes: Long): String = when {
