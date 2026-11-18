@@ -2,6 +2,9 @@ package com.doxaiz.netoptimizer.core.session
 
 import android.content.Context
 import android.os.SystemClock
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -44,6 +47,8 @@ class SessionController(
     private var probeJob: Job? = null
     private var tickerJob: Job? = null
     private var recoveryJob: Job? = null
+    private var networkGuard: SessionNetworkGuard<Network>? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     init { restoreDraft() }
 
@@ -85,7 +90,8 @@ class SessionController(
 
     fun startOrResume(mode: String) {
         if (state.phase != SessionPhase.IDLE && state.phase != SessionPhase.PAUSED) return
-        if (CellularNetwork.active(context) == null) {
+        val network = CellularNetwork.active(context)
+        if (network == null) {
             state = state.copy(message = "Подключите мобильный интернет.")
             return
         }
@@ -93,6 +99,40 @@ class SessionController(
             state = state.copy(message = "Для замера нужен заряд не ниже 20% и доступные данные батареи.")
             return
         }
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        if (manager == null) {
+            state = state.copy(message = "Не удалось отслеживать мобильную сеть.")
+            return
+        }
+        val guard = SessionNetworkGuard(network)
+        fun changed() {
+            scope.launch {
+                if (networkGuard === guard && state.phase == SessionPhase.RUNNING && !guard.valid(CellularNetwork.active(context))) {
+                    pause("Сессия приостановлена: мобильная сеть недоступна или изменилась.")
+                }
+            }
+        }
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(available: Network) { guard.available(available); changed() }
+            override fun onLost(lost: Network) { guard.lost(lost); changed() }
+            override fun onCapabilitiesChanged(current: Network, caps: NetworkCapabilities) {
+                guard.capabilities(current, caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
+                changed()
+            }
+        }
+        try {
+            manager.registerDefaultNetworkCallback(callback)
+        } catch (_: Exception) {
+            state = state.copy(message = "Не удалось отслеживать мобильную сеть. Попробуйте ещё раз.")
+            return
+        }
+        if (!guard.valid(CellularNetwork.active(context))) {
+            try { manager.unregisterNetworkCallback(callback) } catch (_: Exception) { }
+            state = state.copy(message = "Мобильная сеть изменилась. Попробуйте ещё раз.")
+            return
+        }
+        networkGuard = guard
+        networkCallback = callback
         val isNew = state.phase == SessionPhase.IDLE
         val newProgress = (if (isNew) SessionProgress() else state.progress).resume(SystemClock.elapsedRealtime())
         val randomId = UUID.randomUUID().mostSignificantBits or Long.MIN_VALUE
@@ -105,8 +145,20 @@ class SessionController(
         val tester = PingTester(context)
         probeJob = scope.launch {
             while (true) {
+                if (!guard.valid(CellularNetwork.active(context))) {
+                    pause("Сессия приостановлена: мобильная сеть недоступна или изменилась.")
+                    return@launch
+                }
                 val result = tester.test(PingTarget("Яндекс", "yandex.ru", 443, ""))
+                if (!guard.valid(CellularNetwork.active(context))) {
+                    pause("Сессия приостановлена: мобильная сеть недоступна или изменилась.")
+                    return@launch
+                }
                 when (result.status) {
+                    PingStatus.LOW_BATTERY -> {
+                        pause("Сессия приостановлена: заряд ниже 20% или данные батареи недоступны.")
+                        return@launch
+                    }
                     PingStatus.NO_CELLULAR, PingStatus.NETWORK_CHANGED -> {
                         pause("Сессия приостановлена: мобильная сеть недоступна или изменилась.")
                         return@launch
@@ -123,6 +175,10 @@ class SessionController(
         tickerJob = scope.launch {
             var ticks = 0
             while (true) {
+                if (!guard.valid(CellularNetwork.active(context))) {
+                    pause("Сессия приостановлена: мобильная сеть недоступна или изменилась.")
+                    return@launch
+                }
                 state = state.copy(seconds = state.progress.elapsedAt(SystemClock.elapsedRealtime()) / 1000)
                 if (ticks++ % 5 == 0) {
                     if (!CellularNetwork.batteryOk(context)) {
@@ -150,6 +206,11 @@ class SessionController(
         if (state.phase != SessionPhase.RUNNING) return
         probeJob?.cancel(); probeJob = null
         tickerJob?.cancel(); tickerJob = null
+        networkGuard = null
+        networkCallback?.let { callback ->
+            try { context.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(callback) } catch (_: Exception) { }
+        }
+        networkCallback = null
         val progress = state.progress.pause(SystemClock.elapsedRealtime())
         state = state.copy(phase = SessionPhase.PAUSED, progress = progress, seconds = progress.elapsedMs / 1000, message = reason)
         checkpoint()

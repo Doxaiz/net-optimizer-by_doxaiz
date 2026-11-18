@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Net Optimizer by Doxaiz: только зашифрованный трафик (HTTPS/DoH) -->
+<!-- HTTP connections must use TLS. Raw TCP and UDP diagnostics are separately identified in the UI. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

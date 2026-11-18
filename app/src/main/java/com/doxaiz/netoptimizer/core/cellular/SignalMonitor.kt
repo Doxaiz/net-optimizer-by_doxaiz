@@ -11,6 +11,9 @@ import android.telephony.CellSignalStrengthNr
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
@@ -35,21 +38,20 @@ data class SignalState(
     val isLteA: Boolean = false,
     val neighbors: List<String> = emptyList(), // соседние соты: "PCI 123 · B3"
     val temperatureC: Float = 0f,
-    val batteryLevel: Int = 100, // % заряда
+    val batteryLevel: Int = -1, // % заряда
     val hasPermission: Boolean = false
 )
 
 /**
  * Монитор сотового сигнала: RSRP / RSRQ / SINR / Band / агрегация.
  *
- * Работает через опрос (polling) allCellInfo раз в 3 сек — так надёжнее на
- * Infinix XOS / MediaTek, где колбэки TelephonyCallback приходят нестабильно.
- * Никаких скрытых API: всё из публичного TelephonyManager.
+ * Опрос allCellInfo каждые 3 секунды, вне главного потока. Android или модем
+ * могут вернуть устаревшие данные. Никаких скрытых API.
  */
 class SignalMonitor(private val context: Context) {
 
-    private val telephony: TelephonyManager =
-        context.getSystemService(TelephonyManager::class.java)
+    private val telephony: TelephonyManager? =
+        try { context.getSystemService(TelephonyManager::class.java) } catch (_: Exception) { null }
 
     private val _state = MutableStateFlow(SignalState())
     val state: StateFlow<SignalState> = _state
@@ -58,10 +60,12 @@ class SignalMonitor(private val context: Context) {
 
     fun start(scope: CoroutineScope) {
         if (pollingJob?.isActive == true) return
-        pollingJob = scope.launch {
+        pollingJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
                 updateTemperature()
+                currentCoroutineContext().ensureActive()
                 updateOperator()
+                currentCoroutineContext().ensureActive()
                 readCells()
                 delay(3000)
             }
@@ -85,24 +89,25 @@ class SignalMonitor(private val context: Context) {
                 null,
                 android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
             )
-            val tenths = intent?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
-            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, 100) ?: 100
-            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100) ?: 100
-            val percent = if (scale > 0) (level * 100 / scale) else level
+            val tenths = intent?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
+            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+            val percent = if (level >= 0 && scale > 0) (level.toLong() * 100 / scale).coerceIn(0, 100).toInt() else -1
             _state.value = _state.value.copy(
-                temperatureC = if (tenths > 0) tenths / 10f else _state.value.temperatureC,
+                temperatureC = if (tenths in -400..1000) tenths / 10f else 0f,
                 batteryLevel = percent
             )
-        } catch (_: Exception) { }
+        } catch (_: Exception) { _state.value = _state.value.copy(temperatureC = 0f, batteryLevel = -1) }
     }
 
     private fun updateOperator() {
         try {
-            val mccMnc = (telephony.networkOperator ?: "").ifEmpty { telephony.simOperator ?: "" }
+            val manager = telephony ?: run { _state.value = _state.value.copy(operator = "—"); return }
+            val mccMnc = (manager.networkOperator ?: "").ifEmpty { manager.simOperator ?: "" }
             val profile = CarrierProfiles.find(mccMnc)
-            val operator = profile?.name ?: (telephony.networkOperatorName ?: "—")
+            val operator = profile?.name ?: manager.networkOperatorName?.takeIf { it.isNotEmpty() } ?: "—"
             _state.value = _state.value.copy(operator = operator)
-        } catch (_: Exception) { }
+        } catch (_: Exception) { _state.value = _state.value.copy(operator = "—") }
     }
 
     private fun clearCell(hasPermission: Boolean) {
@@ -113,13 +118,13 @@ class SignalMonitor(private val context: Context) {
         )
     }
 
-    private fun readCells() {
+    private suspend fun readCells() {
         if (!hasLocationPermission()) {
             clearCell(false)
             return
         }
         val cells: List<CellInfo> = try {
-            telephony.allCellInfo ?: emptyList()
+            telephony?.allCellInfo ?: emptyList()
         } catch (_: SecurityException) {
             clearCell(false)
             return
@@ -127,11 +132,14 @@ class SignalMonitor(private val context: Context) {
             clearCell(true)
             return
         }
-        if (cells.none { it.isRegistered && (it.cellIdentity is CellIdentityLte || it.cellIdentity is CellIdentityNr) }) {
-            clearCell(true)
-            return
-        }
-        updateFromCells(cells)
+        currentCoroutineContext().ensureActive()
+        try {
+            if (cells.none { it.isRegistered && (it.cellIdentity is CellIdentityLte || it.cellIdentity is CellIdentityNr) }) {
+                clearCell(true)
+                return
+            }
+            updateFromCells(cells)
+        } catch (_: Exception) { clearCell(true) }
     }
 
     private fun updateFromCells(cells: List<CellInfo>) {

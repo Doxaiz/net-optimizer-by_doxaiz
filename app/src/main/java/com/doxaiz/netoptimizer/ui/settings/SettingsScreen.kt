@@ -21,6 +21,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     var theme by remember { mutableStateOf(ThemePrefs.load(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
+    var permissionError by remember { mutableStateOf(false) }
 
     // Слушаем изменения статуса Shizuku (запуск, разрешение)
     DisposableEffect(Unit) {
@@ -114,11 +115,30 @@ fun SettingsScreen(
             }
         }
         item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Разрешения", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Сигнал и сота требуют доступа к местоположению. Разрешения необязательны и управляются в Android.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = {
+                        permissionError = try {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = android.net.Uri.parse("package:${context.packageName}")
+                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                            false
+                        } catch (_: Exception) { true }
+                    }) { Text("Настройки приложения") }
+                    if (permissionError) Text("Откройте настройки приложения вручную.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        item {
             Card(modifier = Modifier.fillMaxWidth()) { Diagnostics() }
         }
         item {
             Text(
-                "Net Optimizer by Doxaiz · v1.1.1 · Open Source\n100% бесплатно, без регистрации и рекламы. Данные — только на телефоне.",
+                "Net Optimizer by Doxaiz · v1.1.1 · Open Source\n100% бесплатно, без регистрации и рекламы. История хранится на телефоне; замеры обращаются к сторонним серверам.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

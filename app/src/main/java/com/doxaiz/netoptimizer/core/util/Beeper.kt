@@ -62,7 +62,9 @@ object Beeper {
                 @Suppress("DEPRECATION")
                 context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? Vibrator
             }
-            vibrator?.vibrate(ms)
+            if (ms > 0 && vibrator?.hasVibrator() == true) {
+                vibrator.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            }
         } catch (_: Exception) {
             // Вибрации нет — пропускаем
         }

@@ -12,7 +12,7 @@ import java.net.Socket
 /** Цель для пинг-теста: игра, сервис или свой IP/домен */
 data class PingTarget(val name: String, val host: String, val port: Int, val hint: String)
 
-enum class PingStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, RESOLUTION_FAILED }
+enum class PingStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, RESOLUTION_FAILED, LOW_BATTERY }
 
 data class PingResult(
     val target: PingTarget,
@@ -51,6 +51,7 @@ class PingTester(private val context: android.content.Context) {
             require(attempts > 0) { "attempts must be positive" }
             val network = CellularNetwork.active(context)
                 ?: return@withContext result(target, emptyList(), PingStatus.NO_CELLULAR)
+            if (!CellularNetwork.batteryOk(context)) return@withContext result(target, emptyList(), PingStatus.LOW_BATTERY)
             val address = try { network.getAllByName(target.host).firstOrNull() } catch (_: Exception) { null }
             currentCoroutineContext().ensureActive()
             if (CellularNetwork.active(context) != network) {
@@ -63,9 +64,14 @@ class PingTester(private val context: android.content.Context) {
                 if (CellularNetwork.active(context) != network) {
                     return@withContext result(target, samples, PingStatus.NETWORK_CHANGED)
                 }
+                if (!CellularNetwork.batteryOk(context)) return@withContext result(target, samples, PingStatus.LOW_BATTERY)
                 samples += connectOnce(network, address, target.port)
             }
-            val status = if (CellularNetwork.active(context) == network) PingStatus.COMPLETED else PingStatus.NETWORK_CHANGED
+            val status = when {
+                CellularNetwork.active(context) != network -> PingStatus.NETWORK_CHANGED
+                !CellularNetwork.batteryOk(context) -> PingStatus.LOW_BATTERY
+                else -> PingStatus.COMPLETED
+            }
             result(target, samples, status)
         }
 

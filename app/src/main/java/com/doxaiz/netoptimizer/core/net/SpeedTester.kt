@@ -72,8 +72,9 @@ class SpeedTester(private val context: Context) {
                 val completed = if (result.status == SpeedStatus.COMPLETED && result.downloadMbps != null)
                     result.copy(downloadLatency = latency.get()) else result
                 if (continuation.isActive) continuation.resume(completed)
-            } catch (_: CancellationException) {
-                // The caller cancelled; no result should be shown.
+            } catch (e: CancellationException) {
+                // An unexpected worker interruption must not leave an active caller waiting forever.
+                if (continuation.isActive) continuation.cancel(e)
             } catch (e: Exception) {
                 if (continuation.isActive) continuation.resumeWith(Result.failure(e))
             }

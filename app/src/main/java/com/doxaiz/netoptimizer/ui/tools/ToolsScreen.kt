@@ -51,8 +51,6 @@ import com.doxaiz.netoptimizer.core.net.PingCatalog
 import com.doxaiz.netoptimizer.core.net.PingResult
 import com.doxaiz.netoptimizer.core.net.PingTarget
 import com.doxaiz.netoptimizer.core.net.PingTester
-import com.doxaiz.netoptimizer.core.net.ScenarioTester
-import com.doxaiz.netoptimizer.core.net.ScenarioVerdict
 import com.doxaiz.netoptimizer.core.net.SpeedResult
 import com.doxaiz.netoptimizer.core.net.SpeedTester
 import com.doxaiz.netoptimizer.core.net.SpeedStatus
@@ -86,17 +84,18 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var dnsError by remember { mutableStateOf(false) }
     var pingResults by remember { mutableStateOf<Map<String, PingResult>>(emptyMap()) }
     var pingTesting by remember { mutableStateOf(false) }
+    var pingError by remember { mutableStateOf(false) }
+    var pingJob by remember { mutableStateOf<Job?>(null) }
     var customHost by rememberSaveable { mutableStateOf("") }
     var customPort by rememberSaveable { mutableStateOf("443") }
     var customError by remember { mutableStateOf<String?>(null) }
     var customResult by remember { mutableStateOf<PingResult?>(null) }
     var customTesting by remember { mutableStateOf(false) }
+    var customJob by remember { mutableStateOf<Job?>(null) }
     var speed by remember { mutableStateOf<SpeedResult?>(null) }
     var speedTesting by remember { mutableStateOf(false) }
     var speedError by remember { mutableStateOf(false) }
     var speedJob by remember { mutableStateOf<Job?>(null) }
-    var scenarios by remember { mutableStateOf<List<ScenarioVerdict>?>(null) }
-    var scenarioTesting by remember { mutableStateOf(false) }
 
     val bench = remember { DnsBenchmark(context) }
     val keepAliveEngine = remember { KeepAliveEngine(context.applicationContext) }
@@ -109,6 +108,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             if (event == Lifecycle.Event.ON_STOP) {
                 speedJob?.cancel()
                 benchJob?.cancel()
+                pingJob?.cancel()
+                customJob?.cancel()
                 keepAliveEngine.stop()
             }
         }
@@ -117,12 +118,18 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             lifecycle.removeObserver(observer)
             speedJob?.cancel()
             benchJob?.cancel()
+            pingJob?.cancel()
+            customJob?.cancel()
             keepAliveEngine.stop()
         }
     }
     val listState = rememberLazyListState()
     LaunchedEffect(section) {
-        if (section != ToolsSection.TESTS) speedJob?.cancel()
+        if (section != ToolsSection.TESTS) {
+            speedJob?.cancel()
+            pingJob?.cancel()
+            customJob?.cancel()
+        }
         if (section != ToolsSection.DNS) benchJob?.cancel()
         if (section != ToolsSection.SIGNAL) keepAliveEngine.stop()
         listState.scrollToItem(0)
@@ -160,7 +167,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text("Оценка только по уровню сигнала; расположение сот не определяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Оценка только по уровню сигнала; расположение сот не определяется. Android может возвращать данные с задержкой.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(selected = soundOn, onClick = { soundOn = !soundOn }, label = { Text("🔊 Звук") })
@@ -337,8 +344,10 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                                 customError = null
                                 customResult = null
                                 customTesting = true
-                                scope.launch {
+                                customJob = scope.launch {
                                     try { customResult = pingTester.test(target) }
+                                    catch (e: CancellationException) { throw e }
+                                    catch (_: Exception) { customError = "Не удалось выполнить проверку. Попробуйте ещё раз." }
                                     finally { customTesting = false }
                                 }
                             }
@@ -376,13 +385,18 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                                 }
                             }
                         }
+                        if (pingError) Text("Не удалось выполнить проверку. Попробуйте ещё раз.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {
                                 pingTesting = true
-                                scope.launch {
-                                    pingResults = pingTester.testAll(PingCatalog.targets)
-                                    pingTesting = false
+                                pingError = false
+                                pingResults = emptyMap()
+                                pingJob = scope.launch {
+                                    try { pingResults = pingTester.testAll(PingCatalog.targets) }
+                                    catch (e: CancellationException) { throw e }
+                                    catch (_: Exception) { pingError = true }
+                                    finally { pingTesting = false }
                                 }
                             },
                             enabled = !pingTesting && !customTesting,
@@ -515,6 +529,7 @@ private fun openNetworkSettings(context: android.content.Context): Boolean {
 }
 
 private fun probeShortDescription(result: PingResult): String = when (result.status) {
+    PingStatus.LOW_BATTERY -> "Пауза: заряд ниже 20% или неизвестен"
     PingStatus.NO_CELLULAR -> "Нет мобильной сети"
     PingStatus.NETWORK_CHANGED -> "Сеть изменилась"
     PingStatus.RESOLUTION_FAILED -> "Адрес не найден"
@@ -528,6 +543,7 @@ private fun probeShortDescription(result: PingResult): String = when (result.sta
 @Composable
 private fun PingDetails(result: PingResult) {
     when (result.status) {
+        PingStatus.LOW_BATTERY -> Text("Заряд ниже 20% или данные батареи недоступны. Замер остановлен.", color = MaterialTheme.colorScheme.error)
         PingStatus.NO_CELLULAR -> Text("Мобильное подключение не найдено. Проверьте сеть и повторите замер.", color = MaterialTheme.colorScheme.error)
         PingStatus.NETWORK_CHANGED -> Text("Сеть изменилась во время замера. Повторите проверку.", color = MaterialTheme.colorScheme.error)
         PingStatus.RESOLUTION_FAILED -> Text("Не удалось определить IP-адрес цели через мобильную сеть. Проверьте адрес и повторите попытку.", color = MaterialTheme.colorScheme.error)

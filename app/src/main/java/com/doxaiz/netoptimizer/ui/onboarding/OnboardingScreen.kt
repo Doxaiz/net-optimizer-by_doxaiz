@@ -11,6 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
@@ -31,6 +34,21 @@ fun OnboardingScreen(onDone: () -> Unit) {
     var permPhone by remember { mutableStateOf(hasPerm(context, Manifest.permission.READ_PHONE_STATE)) }
     var permUsage by remember { mutableStateOf(hasUsageAccess(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
+    var batteryExempt by remember { mutableStateOf(isBatteryExempt(context)) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                permCell = hasPerm(context, Manifest.permission.ACCESS_FINE_LOCATION)
+                permPhone = hasPerm(context, Manifest.permission.READ_PHONE_STATE)
+                permUsage = hasUsageAccess(context)
+                batteryExempt = isBatteryExempt(context)
+                shizukuStatus = ShizukuManager.status()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -51,7 +69,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
             Text("by Doxaiz", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Бесплатно · Без регистрации · Всё локально на устройстве\nУлучшение 4G/5G, скорости и пинга — честно и без «волшебных кнопок»",
+                "Бесплатно · Без регистрации · История хранится на телефоне\nДиагностика 4G/5G без обещаний «волшебного» усиления сигнала",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -63,9 +81,9 @@ fun OnboardingScreen(onDone: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     PermissionRow(
                         title = "Состояние сотовой сети",
-                        sub = "Сигнал 4G/5G, частота Band, оператор",
+                        sub = "Для данных соты Android может требовать точную геопозицию",
                         granted = permCell && permPhone,
-                        onRequest = { launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE)) }
+                        onRequest = { launcher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE)) }
                     )
                     PermissionRow(
                         title = "Статистика трафика",
@@ -74,18 +92,18 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         onRequest = { openUsageAccess(context) }
                     )
                     PermissionRow(
-                        title = "Работа в фоне без ограничений",
-                        sub = "Чтобы система не выключала оптимизацию",
-                        granted = false,
+                        title = "Исключение из оптимизации батареи (необязательно)",
+                        sub = "Не включает фоновые функции; сейчас замеры работают на экране",
+                        granted = batteryExempt,
                         onRequest = { requestIgnoreBattery(context) }
                     )
                     PermissionRow(
                         title = "Shizuku (супер-фичи, необязательно)",
                         sub = when (shizukuStatus) {
-                            ShizukuManager.Status.READY -> "✅ Готов: режим сети и стоп приложений работают автоматически"
+                            ShizukuManager.Status.READY -> "✅ Подключён: остановка приложения доступна после подтверждения"
                             ShizukuManager.Status.NO_PERMISSION -> "Shizuku запущен — нажмите «Разрешить»"
                             ShizukuManager.Status.NOT_RUNNING -> "Установите и запустите Shizuku"
-                            ShizukuManager.Status.NOT_INSTALLED -> "Не установлен. Без него основная оптимизация всё равно работает"
+                            ShizukuManager.Status.NOT_INSTALLED -> "Без него доступны измерения и системная карточка приложений"
                         },
                         granted = shizukuStatus == ShizukuManager.Status.READY,
                         onRequest = {
@@ -128,7 +146,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
             ) { Text("🚀 Запустить Doxaiz") }
             Spacer(Modifier.height(8.dp))
             Text(
-                "Open Source · 0% рекламы · Данные только на телефоне",
+                "Open Source · 0% рекламы · Замеры обращаются к сторонним серверам",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -185,3 +203,7 @@ private fun requestIgnoreBattery(context: android.content.Context) {
         // На некоторых прошивках диалог недоступен — просто пропускаем
     }
 }
+
+private fun isBatteryExempt(context: android.content.Context): Boolean = try {
+    context.getSystemService(android.os.PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
+} catch (_: Exception) { false }

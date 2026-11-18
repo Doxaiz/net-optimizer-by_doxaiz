@@ -1,0 +1,12 @@
+# Local build outputs and machine-specific Android configuration
+.gradle/
+build/
+**/build/
+local.properties
+.idea/
+*.iml
+*.apk
+*.aab
+# Do not add new signing keys or credential files. The legacy tracked key requires rotation.
+*.jks
+*.keystore
