@@ -62,17 +62,15 @@ class PingTester(private val context: android.content.Context) {
                 return@withContext result(target, emptyList(), PingStatus.NETWORK_CHANGED)
             }
             if (address == null) return@withContext result(target, emptyList(), PingStatus.RESOLUTION_FAILED)
-            val samples = mutableListOf<Int>()
-            repeat(attempts) {
-                currentCoroutineContext().ensureActive()
-                if (CellularNetwork.active(context) != network) {
-                    return@withContext result(target, samples, PingStatus.NETWORK_CHANGED)
+            var interrupted: PingStatus? = null
+            val samples = TcpProbeSequence.run(attempts, beforeAttempt = {
+                when {
+                    CellularNetwork.active(context) != network -> { interrupted = PingStatus.NETWORK_CHANGED; false }
+                    !CellularNetwork.batteryOk(context) -> { interrupted = PingStatus.LOW_BATTERY; false }
+                    else -> true
                 }
-                if (!CellularNetwork.batteryOk(context)) return@withContext result(target, samples, PingStatus.LOW_BATTERY)
-                samples += connectOnce(network, address, target.port)
-                currentCoroutineContext().ensureActive()
-                onProgress(samples.size, attempts)
-            }
+            }, connect = { connectOnce(network, address, target.port) }, onProgress = onProgress)
+            interrupted?.let { return@withContext result(target, samples, it) }
             val status = when {
                 CellularNetwork.active(context) != network -> PingStatus.NETWORK_CHANGED
                 !CellularNetwork.batteryOk(context) -> PingStatus.LOW_BATTERY
