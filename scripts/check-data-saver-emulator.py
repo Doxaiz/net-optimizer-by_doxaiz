@@ -20,7 +20,7 @@ try:
     start()
     tap("Продолжить")
     tap("Снизить нагрузку на сеть")
-    verify("Экономия трафика Android: выключена")
+    verify("Фоновый трафик этого приложения: без ограничений")
     # Emulator display sizes differ: infer actual bounds, then scroll in short steps.
     bounds = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in h["nodes"]()]
     sizes = [(int(m.group(1)), int(m.group(2))) for m in bounds if m]
@@ -51,11 +51,11 @@ try:
     alive()
     # Return to the status label if scrolling moved it above the viewport.
     for _ in range(10):
-        if any(n.attrib.get("text") == "Экономия трафика Android: включена" for n in h["nodes"]()):
+        if any(n.attrib.get("text") == "Фоновый трафик этого приложения: ограничен" for n in h["nodes"]()):
             break
         adb("shell", "input", "swipe", x, str(int(height * 0.52)), x, str(int(height * 0.72)), "350")
         time.sleep(0.5)
-    verify("Экономия трафика Android: включена")
+    verify("Фоновый трафик этого приложения: ограничен")
     print("Data Saver settings opened and status refreshed after returning")
 finally:
     adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false", check=False)

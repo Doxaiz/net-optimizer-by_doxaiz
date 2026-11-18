@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Android-12%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 12 и новее"></a>
-  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.1-00c6d7?style=flat-square" alt="Релиз 1.0.1"></a>
+  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.2-00c6d7?style=flat-square" alt="Релиз 1.0.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-MIT-9d80ff?style=flat-square" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/Цена-бесплатно-21c997?style=flat-square" alt="Бесплатно">
 </p>
@@ -50,7 +50,7 @@
 
 **Экономия трафика Android** в версии 1.0.1 позволяет пользователю ограничить часть фоновых загрузок на лимитных сетях. Это может освободить канал, но также задержать синхронизацию и уведомления; часть приложений может быть в исключениях, а активные загрузки и раздачу с ПК нужно контролировать отдельно. Настройка управляется пользователем в Android и может затрагивать лимитный Wi‑Fi.
 
-**Shizuku необязателен.** С его помощью можно отправить команды остановки выбранных приложений после подтверждения; без него доступны системные настройки. Принудительная остановка затрагивает всё приложение и может прервать уведомления и загрузки.
+**Shizuku необязателен.** С его помощью можно отправить команды остановки выбранных приложений после подтверждения; без него доступны системные настройки. В версии 1.0.2 также предусмотрено подтверждённое включение и выключение системной экономии трафика через Shizuku; настройка общая для устройства и остаётся активной до выключения. Принудительная остановка затрагивает всё приложение и может прервать уведомления и загрузки.
 
 ## Важно знать
 

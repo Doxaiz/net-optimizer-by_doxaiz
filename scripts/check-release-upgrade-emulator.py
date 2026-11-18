@@ -21,12 +21,12 @@ tap("Продолжить")
 verify("ГЛАВНАЯ")
 install(sys.argv[2], replace=True)
 info = adb("shell", "dumpsys", "package", package)
-if not re.search(r"versionCode=14\b", info):
-    raise RuntimeError("Updated package is not versionCode 14")
+if not re.search(r"versionCode=15\b", info):
+    raise RuntimeError("Updated package is not versionCode 15")
 start()
 # Onboarding is persisted by the old APK and must not be shown again after updating.
 verify("ГЛАВНАЯ")
 tap("Снизить нагрузку на сеть")
-verify("Экономия трафика Android: выключена")
+verify("Фоновый трафик этого приложения: без ограничений")
 alive()
 print("Release update preserved onboarding and the new screen is reachable")
