@@ -1,0 +1,42 @@
+name: Retry Android 12 candidate verification (temporary)
+on:
+  push:
+    branches: [arena/1cfa410c-net-optimizer-by-doxaiz]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-1.0.1-candidate
+          path: candidate
+          run-id: 44375212176
+          github-token: ${{ github.token }}
+      - name: Download existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p published
+          gh release download v1.0.0 --repo "$GITHUB_REPOSITORY" --pattern app-release.apk --dir published
+          echo '31ea5511e33fdfaa45ac28a1b456589d714b9494829227d576a906caaf7cb4bb  published/app-release.apk' | sha256sum -c -
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Check release candidate on Android 12
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          AUDIT_DISPOSABLE_EMULATOR: 'yes'
+        with:
+          api-level: 31
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash scripts/run-release-checks-once.sh

@@ -1,8 +1,6 @@
 name: Verify 1.0.1 release candidate (temporary)
 
 on:
-  push:
-    branches: [arena/1cfa410c-net-optimizer-by-doxaiz]
   workflow_dispatch:
 
 permissions:

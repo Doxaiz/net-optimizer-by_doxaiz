@@ -26,7 +26,14 @@ try:
             break
         adb("shell", "input", "swipe", "500", "1400", "500", "1250", "350")
         time.sleep(0.5)
-    tap("Настроить экономию трафика")
+    try:
+        tap("Настроить экономию трафика")
+    except RuntimeError:
+        print("Visible UI after attempted scroll:", flush=True)
+        for node in h["nodes"]():
+            if node.attrib.get("text"):
+                print(node.attrib["text"], node.attrib.get("bounds", ""), flush=True)
+        raise
     # The exact settings screen is vendor-dependent; on AOSP it must leave the app.
     focus = adb("shell", "dumpsys", "activity", "activities")
     if "com.android.settings" not in focus:
