@@ -74,6 +74,10 @@ try:
     tap("Включить через Shizuku")
     tap("Включить")
     time.sleep(4)
+    print("Policy after enable:", system_data_saver(), flush=True)
+    print("After enable UI:", [(n.attrib.get("text"), n.attrib.get("bounds")) for n in h["nodes"]() if n.attrib.get("text")], flush=True)
+    print("Command diagnostics:", adb("logcat", "-d", "-s", "NetOptShizuku:W", check=False)[-2000:], flush=True)
+    scroll_to("Выключить через Shizuku")
     verify("Выключить через Shizuku")
     if system_data_saver() != "Restrict background status: enabled":
         raise RuntimeError("Android did not enable Data Saver")
