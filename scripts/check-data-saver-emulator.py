@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Destructive check: only on a disposable emulator, never a personal device."""
 import os
+import re
 import runpy
 import sys
 import time
@@ -20,11 +21,17 @@ try:
     tap("Продолжить")
     tap("Снизить нагрузку на сеть")
     verify("Экономия трафика Android: выключена")
-    # Inspect after each small swipe so we do not scroll past the button on taller screens.
+    # Emulator display sizes differ: infer actual bounds, then scroll in short steps.
+    bounds = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in h["nodes"]()]
+    sizes = [(int(m.group(1)), int(m.group(2))) for m in bounds if m]
+    if not sizes:
+        raise RuntimeError("Cannot determine emulator viewport")
+    width, height = max(sizes, key=lambda size: size[0] * size[1])
+    x = str(width // 2)
     for _ in range(10):
         if any(n.attrib.get("text") == "Настроить экономию трафика" for n in h["nodes"]()):
             break
-        adb("shell", "input", "swipe", "500", "1400", "500", "1250", "350")
+        adb("shell", "input", "swipe", x, str(int(height * 0.72)), x, str(int(height * 0.52)), "350")
         time.sleep(0.5)
     try:
         tap("Настроить экономию трафика")
@@ -46,7 +53,7 @@ try:
     for _ in range(10):
         if any(n.attrib.get("text") == "Экономия трафика Android: включена" for n in h["nodes"]()):
             break
-        adb("shell", "input", "swipe", "500", "1100", "500", "1250", "350")
+        adb("shell", "input", "swipe", x, str(int(height * 0.52)), x, str(int(height * 0.72)), "350")
         time.sleep(0.5)
     verify("Экономия трафика Android: включена")
     print("Data Saver settings opened and status refreshed after returning")
