@@ -9,33 +9,54 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.DoxaizApp
+import com.doxaiz.netoptimizer.core.data.SessionEntity
+import com.doxaiz.netoptimizer.core.session.MetricLevel
 import com.doxaiz.netoptimizer.core.session.SessionController
+import com.doxaiz.netoptimizer.core.session.SessionInsights
 import com.doxaiz.netoptimizer.core.session.SessionPhase
 import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.ui.home.WorkMode
-import com.doxaiz.netoptimizer.ui.theme.AccentViolet
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private sealed interface HistoryResult {
+    data object Loading : HistoryResult
+    data object Error : HistoryResult
+    data class Loaded(val sessions: List<SessionEntity>) : HistoryResult
+}
+
 @Composable
 fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController) {
     val context = LocalContext.current
     val repo = remember { (context.applicationContext as DoxaizApp).sessionRepository }
-    val sessions by repo.observeAll().collectAsState(initial = emptyList())
+    var historyReload by remember { mutableIntStateOf(0) }
+    val historyFlow = remember(repo, historyReload) {
+        repo.observeAll().map<List<SessionEntity>, HistoryResult> { HistoryResult.Loaded(it) }
+            .catch { emit(HistoryResult.Error) }
+    }
+    val history by historyFlow.collectAsState(initial = HistoryResult.Loading)
+    val sessions = (history as? HistoryResult.Loaded)?.sessions.orEmpty()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val state = controller.state
     var selected by remember { mutableStateOf<List<Long>>(emptyList()) }
     var detailId by remember { mutableStateOf<Long?>(null) }
+    var deleteId by remember { mutableStateOf<Long?>(null) }
+    var operationMessage by remember { mutableStateOf("") }
     var confirmDiscard by remember { mutableStateOf(false) }
     val detail = sessions.firstOrNull { it.id == detailId }
+    val deleteTarget = sessions.firstOrNull { it.id == deleteId }
 
     LazyColumn(modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -54,7 +75,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
                         SessionPhase.SAVING -> "СОХРАНЕНИЕ"
                     }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("%02d:%02d".format(state.seconds / 60, state.seconds % 60), style = MaterialTheme.typography.headlineMedium)
-                    Text("TCP-задержка до Яндекса · замеров: ${state.progress.sampleCount}. Можно переключать вкладки; при сворачивании или заряде ниже 20% сессия ставится на паузу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("TCP-задержка до Яндекса · успешных серий: ${state.progress.sampleCount}. Можно переключать вкладки; при сворачивании или заряде ниже 20% сессия ставится на паузу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Черновик записывается на телефон примерно раз в 5 секунд и при паузе. При внезапном сбое последние данные могут не сохраниться; после восстановления замер остаётся на паузе.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     when (state.phase) {
@@ -86,28 +107,48 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
         if (selected.size == 2) item {
             val a = sessions.firstOrNull { it.id == selected[0] }
             val b = sessions.firstOrNull { it.id == selected[1] }
-            if (a != null && b != null) Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("СРАВНЕНИЕ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("${a.avgPingMs} мс  ↔  ${b.avgPingMs} мс", style = MaterialTheme.typography.headlineSmall)
-                    Text("Разница: ${kotlin.math.abs(a.avgPingMs - b.avgPingMs)} мс. Условия сети могут отличаться.", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            if (a != null && b != null) ComparisonCard(a, b)
         }
         if (detail != null) item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("ДЕТАЛИ СЕССИИ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("${detail.name} · ${sessionDate(detail.timestamp)}", style = MaterialTheme.typography.titleMedium)
+                    SessionMetric("Средняя TCP-задержка", ms(detail.avgPingMs), SessionInsights.latencyLevel(detail.avgPingMs), "${SessionInsights.latencyExplanation(detail.avgPingMs)} Среднее серий, каждая серия имеет одинаковый вес; оценка условная.")
+                    SessionMetric("Неудачные TCP-подключения", percent(detail.lossPercent), SessionInsights.failureLevel(detail.lossPercent), "Доля неудачных попыток подключения к сайту, не потери пакетов в игре.")
+                    Text("Наибольшая средняя задержка серии: ${ms(detail.maxPingMs)} · Длительность: ${SessionInsights.formatDuration(detail.durationSec)}", style = MaterialTheme.typography.bodySmall)
+                    val signal = if (detail.avgRsrp in -160..-30) "${detail.avgRsrp} дБм" else "нет данных"
+                    Text("При сохранении: ${detail.operator} · сигнал $signal · диапазон ${detail.band}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("ГРАФИК TCP-ЗАДЕРЖКИ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    PingGraph(detail.pingHistory.split(",").mapNotNull { it.toIntOrNull() })
+                    PingGraph(SessionInsights.historyValues(detail.pingHistory))
+                    Text("Последние до 120 успешных серий: каждая точка — среднее успешных подключений. Неудачные серии и интервалы пауз на графике не показаны.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { scope.launch { repo.setPinned(detail.id, !detail.pinned) } }, modifier = Modifier.weight(1f)) { Text(if (detail.pinned) "Открепить" else "Закрепить") }
-                        OutlinedButton(onClick = { scope.launch { repo.delete(detail.id); selected = selected - detail.id; detailId = null } }, modifier = Modifier.weight(1f)) { Text("Удалить") }
+                        OutlinedButton(onClick = {
+                            scope.launch {
+                                try { repo.setPinned(detail.id, !detail.pinned); operationMessage = "" }
+                                catch (e: CancellationException) { throw e }
+                                catch (_: Exception) { operationMessage = "Не удалось изменить закрепление. Попробуйте ещё раз." }
+                            }
+                        }, modifier = Modifier.weight(1f)) { Text(if (detail.pinned) "Открепить" else "Закрепить") }
+                        OutlinedButton(onClick = { deleteId = detail.id }, modifier = Modifier.weight(1f)) { Text("Удалить") }
                     }
                 }
             }
         }
-        item { Text("ИСТОРИЯ · ВЫБЕРИТЕ ДВЕ ДЛЯ СРАВНЕНИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (sessions.isEmpty()) item { Text("Сохранённых сессий пока нет.", style = MaterialTheme.typography.bodyMedium) }
+        item {
+            Text("ИСТОРИЯ · ВЫБЕРИТЕ ДВЕ ДЛЯ СРАВНЕНИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (operationMessage.isNotEmpty()) Text(operationMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        when (history) {
+            HistoryResult.Loading -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            HistoryResult.Error -> item {
+                Column {
+                    Text("Не удалось загрузить историю сессий.", color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { historyReload++ }) { Text("Повторить") }
+                }
+            }
+            is HistoryResult.Loaded -> if (sessions.isEmpty()) item { Text("Сохранённых сессий пока нет.", style = MaterialTheme.typography.bodyMedium) }
+        }
         items(sessions, key = { it.id }) { s ->
             val isSelected = s.id in selected
             Card(Modifier.fillMaxWidth().clickable {
@@ -117,35 +158,87 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
             }, colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(s.name + if (s.pinned) " · Закреплено" else "", style = MaterialTheme.typography.titleMedium)
-                    Text("${SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(s.timestamp))} · ${s.durationSec / 60} мин · ${s.operator}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("TCP-задержка: ${s.avgPingMs} мс", color = MaterialTheme.colorScheme.primary)
+                    Text("${sessionDate(s.timestamp)} · ${SessionInsights.formatDuration(s.durationSec)} · ${s.operator}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("TCP-задержка: ${ms(s.avgPingMs)} · Неудачные подключения: ${percent(s.lossPercent)}", color = metricColor(SessionInsights.latencyLevel(s.avgPingMs)))
                 }
             }
         }
     }
     if (confirmDiscard) {
-        AlertDialog(
-            onDismissRequest = { confirmDiscard = false },
-            title = { Text("Удалить черновик?") },
+        AlertDialog(onDismissRequest = { confirmDiscard = false }, title = { Text("Удалить черновик?") },
             text = { Text("Несохранённые данные этой сессии будут удалены. История сохранённых сессий не изменится.") },
             confirmButton = { TextButton(onClick = { controller.discardDraft(); confirmDiscard = false }) { Text("Удалить") } },
-            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Отмена") } }
-        )
+            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Отмена") } })
+    }
+    if (deleteTarget != null) {
+        AlertDialog(onDismissRequest = { deleteId = null }, title = { Text("Удалить сессию?") },
+            text = { Text("${deleteTarget.name} от ${sessionDate(deleteTarget.timestamp)} будет удалена без возможности восстановления.") },
+            confirmButton = { TextButton(onClick = {
+                val id = deleteTarget.id
+                deleteId = null
+                scope.launch {
+                    try { repo.delete(id); selected = selected - id; if (detailId == id) detailId = null; operationMessage = "" }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { operationMessage = "Не удалось удалить сессию. Попробуйте ещё раз." }
+                }
+            }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Отмена") } })
     }
 }
 
 @Composable
+private fun ComparisonCard(a: SessionEntity, b: SessionEntity) {
+    val delta = SessionInsights.latencyDifference(a.avgPingMs, b.avgPingMs)
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("СРАВНЕНИЕ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text("1 · ${sessionDate(a.timestamp)} · ${a.mode}: ${ms(a.avgPingMs)} · ${percent(a.lossPercent)} неудачных", style = MaterialTheme.typography.bodyMedium)
+            Text("2 · ${sessionDate(b.timestamp)} · ${b.mode}: ${ms(b.avgPingMs)} · ${percent(b.lossPercent)} неудачных", style = MaterialTheme.typography.bodyMedium)
+            val difference = when {
+                delta == null -> "Недостаточно данных для разницы задержки."
+                delta == 0L -> "Средняя задержка одинакова."
+                delta < 0 -> "Во второй сессии средняя задержка ниже на ${-delta} мс."
+                else -> "Во второй сессии средняя задержка выше на $delta мс."
+            }
+            Text(difference, style = MaterialTheme.typography.bodyMedium)
+            Text("Это среднее серий TCP-подключений до сайта, не пинг игрового сервера. Условия сети и время замеров могут отличаться; разница не доказывает улучшение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun SessionMetric(label: String, value: String, level: MetricLevel, explanation: String) {
+    Column {
+        Text("$label: $value", color = metricColor(level), style = MaterialTheme.typography.bodyMedium)
+        Text(explanation, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun metricColor(level: MetricLevel): Color = when (level) {
+    MetricLevel.GOOD -> MaterialTheme.colorScheme.primary
+    MetricLevel.CAUTION -> MaterialTheme.colorScheme.tertiary
+    MetricLevel.POOR -> MaterialTheme.colorScheme.error
+    MetricLevel.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+private fun ms(value: Int): String = if (value >= 0) "$value мс" else "нет данных"
+private fun percent(value: Int): String = if (value in 0..100) "$value%" else "нет данных"
+private fun sessionDate(timestamp: Long): String = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(timestamp))
+
+@Composable
 private fun PingGraph(history: List<Int>) {
-    if (history.size < 2) { Text("Для графика нужно минимум два замера."); return }
+    if (history.size < 2) { Text("Для графика нужно минимум две успешные серии."); return }
+    val lineColor = MaterialTheme.colorScheme.primary
     Canvas(Modifier.fillMaxWidth().height(100.dp)) {
-        val min = (history.minOrNull() ?: 0) - 5
-        val max = (history.maxOrNull() ?: 0) + 5
+        val min = (history.minOrNull() ?: 0).toDouble() - 5.0
+        val max = (history.maxOrNull() ?: 0).toDouble() + 5.0
         val path = Path()
         history.forEachIndexed { i, value ->
             val x = size.width * i / (history.size - 1)
-            val y = size.height - ((value - min).toFloat() / (max - min)) * size.height
+            val y = size.height - (((value.toDouble() - min) / (max - min)) * size.height).toFloat()
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
-        drawPath(path, AccentViolet, style = Stroke(3f))
+        drawPath(path, lineColor, style = Stroke(3f))
     }
 }
