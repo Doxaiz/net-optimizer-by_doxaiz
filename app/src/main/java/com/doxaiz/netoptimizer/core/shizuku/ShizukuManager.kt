@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 
@@ -106,24 +105,9 @@ object ShizukuManager {
         runCommand("am", "force-stop", packageName)
     }
 
-    /**
-     * Перерегистрация на ближнюю соту: переключение мобильных данных через Shizuku.
-     * Wi-Fi не трогаем — иначе прервётся связь при USB-модеме.
-     */
-    suspend fun resetCell(): Boolean = withContext(Dispatchers.IO) {
-        if (!isReady()) return@withContext false
-        runCommand("svc", "data", "disable")
-        delay(1500)
-        runCommand("svc", "data", "enable")
-        true
-    }
+    /** Disabled: toggling mobile data does not guarantee a different cell and can break tethering. */
+    suspend fun resetCell(): Boolean = false
 
-    /** Применить сохранённый режим сети (при получении разрешения Shizuku) */
-    fun applySavedNetworkMode(context: Context) {
-        if (!isReady()) return
-        try {
-            val mode = com.doxaiz.netoptimizer.core.cellular.NetworkModePrefs.load(context)
-            com.doxaiz.netoptimizer.core.cellular.NetworkModeApplier.apply(mode)
-        } catch (_: Exception) { }
-    }
+    /** Disabled: never apply saved network modes without an explicit, verified safe action. */
+    fun applySavedNetworkMode(context: Context) = Unit
 }

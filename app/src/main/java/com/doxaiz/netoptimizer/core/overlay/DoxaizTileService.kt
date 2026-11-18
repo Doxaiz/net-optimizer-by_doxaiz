@@ -1,50 +1,36 @@
 package com.doxaiz.netoptimizer.core.overlay
 
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import com.doxaiz.netoptimizer.core.dns.DoxaizVpnService
-import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
-import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import com.doxaiz.netoptimizer.MainActivity
 
-/**
- * Быстрая плитка в шторке Android: включение/выключение оптимизации в 1 тап.
- * Долгое нажатие открывает приложение.
- */
+/** Shortcut only: no invisible background measurements or network packets. */
 class DoxaizTileService : TileService() {
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val keepAlive by lazy { KeepAliveEngine(applicationContext) }
-    private var active = false
-
-    override fun onDestroy() {
-        keepAlive.stop()
-        super.onDestroy()
-    }
-
     override fun onStartListening() {
         super.onStartListening()
         qsTile?.let {
-            it.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-            it.label = "Doxaiz: оптимизация"
+            it.state = Tile.STATE_INACTIVE
+            it.label = "Открыть Doxaiz"
             it.updateTile()
         }
     }
 
     override fun onClick() {
         super.onClick()
-        active = !active
-        if (active) {
-            keepAlive.start(scope, KeepAliveProfile.MAX)
-        } else {
-            keepAlive.stop()
-        }
-        qsTile?.let {
-            it.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-            it.updateTile()
+        val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                val pending = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                startActivityAndCollapse(pending)
+            } else {
+                @Suppress("DEPRECATION")
+                startActivityAndCollapse(intent)
+            }
+        } catch (_: Exception) {
+            // Some vendor systems prohibit tile activity launches; use the app icon instead.
         }
     }
 }

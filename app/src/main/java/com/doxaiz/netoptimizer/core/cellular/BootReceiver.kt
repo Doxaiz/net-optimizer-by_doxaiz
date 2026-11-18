@@ -4,18 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
-/**
- * После перезагрузки телефона повторно применяет сохранённый режим сети
- * (если доступен Shizuku). Без Shizuku режим нужно выставить вручную —
- * приложение напомнит об этом карточкой на главном экране.
- */
+/** Network settings must never be silently changed after boot. */
 class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
-        val mode = NetworkModePrefs.load(context)
-        if (mode != NetworkMode.AUTO) {
-            // Пытаемся применить через Shizuku (если он запустился к этому моменту)
-            NetworkModeApplier.apply(mode)
-        }
-    }
+    override fun onReceive(context: Context, intent: Intent?) = Unit
 }

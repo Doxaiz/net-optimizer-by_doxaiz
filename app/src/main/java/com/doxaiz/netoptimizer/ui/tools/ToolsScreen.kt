@@ -31,9 +31,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.cellular.CarrierProfiles
-import com.doxaiz.netoptimizer.core.cellular.NetworkMode
-import com.doxaiz.netoptimizer.core.cellular.NetworkModeApplier
-import com.doxaiz.netoptimizer.core.cellular.NetworkModePrefs
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
 import com.doxaiz.netoptimizer.core.cellular.SignalState
 import com.doxaiz.netoptimizer.core.cellular.RadioChannels
@@ -41,11 +38,11 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
 import com.doxaiz.netoptimizer.core.dns.PrivateDns
-import com.doxaiz.netoptimizer.core.dns.DoxaizVpnService
 import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
 import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
+import com.doxaiz.netoptimizer.core.net.KeepAliveStatus
+import com.doxaiz.netoptimizer.core.net.description
 import com.doxaiz.netoptimizer.core.util.Beeper
-import com.doxaiz.netoptimizer.core.dns.DnsLog
 import com.doxaiz.netoptimizer.core.dns.DnsCatalog
 import com.doxaiz.netoptimizer.core.dns.DnsServer
 import com.doxaiz.netoptimizer.core.net.CustomTarget
@@ -59,7 +56,6 @@ import com.doxaiz.netoptimizer.core.net.ScenarioVerdict
 import com.doxaiz.netoptimizer.core.net.SpeedResult
 import com.doxaiz.netoptimizer.core.net.SpeedTester
 import com.doxaiz.netoptimizer.core.net.SpeedStatus
-import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentRed
@@ -82,10 +78,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var section by rememberSaveable { mutableStateOf(ToolsSection.SIGNAL) }
     var soundOn by remember { mutableStateOf(false) }
     var vibOn by remember { mutableStateOf(false) }
-    var netMode by remember { mutableStateOf(NetworkModePrefs.load(context)) }
-    var netModeStatus by remember { mutableStateOf("") }
-    var cellResetting by remember { mutableStateOf(false) }
-    var keepAliveOn by remember { mutableStateOf(false) }
+    var radioError by remember { mutableStateOf(false) }
     var dnsList by remember { mutableStateOf(DnsCatalog.servers) }
     var selectedDns by remember { mutableStateOf<DnsServer?>(null) }
     var benching by remember { mutableStateOf(false) }
@@ -103,13 +96,11 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var speedError by remember { mutableStateOf(false) }
     var speedJob by remember { mutableStateOf<Job?>(null) }
     var scenarios by remember { mutableStateOf<List<ScenarioVerdict>?>(null) }
-    val dnsEntries by DnsLog.entries.collectAsState()
-    val dnsBlocked by DnsLog.blockedCount.collectAsState()
     var scenarioTesting by remember { mutableStateOf(false) }
 
     val bench = remember { DnsBenchmark(context) }
-    val keepAliveEngine = remember { KeepAliveEngine(context) }
-    DisposableEffect(keepAliveEngine) { onDispose { keepAliveEngine.stop() } }
+    val keepAliveEngine = remember { KeepAliveEngine(context.applicationContext) }
+    val keepAliveState by keepAliveEngine.state.collectAsState()
     val pingTester = remember { PingTester(context) }
     val speedTester = remember { SpeedTester(context.applicationContext) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -118,6 +109,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             if (event == Lifecycle.Event.ON_STOP) {
                 speedJob?.cancel()
                 benchJob?.cancel()
+                keepAliveEngine.stop()
             }
         }
         lifecycle.addObserver(observer)
@@ -125,12 +117,14 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             lifecycle.removeObserver(observer)
             speedJob?.cancel()
             benchJob?.cancel()
+            keepAliveEngine.stop()
         }
     }
     val listState = rememberLazyListState()
     LaunchedEffect(section) {
         if (section != ToolsSection.TESTS) speedJob?.cancel()
         if (section != ToolsSection.DNS) benchJob?.cancel()
+        if (section != ToolsSection.SIGNAL) keepAliveEngine.stop()
         listState.scrollToItem(0)
     }
 
@@ -184,16 +178,17 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Анти-сон модема (Keep-Alive)")
-                                Text("Только на этом экране; пауза при заряде ниже 20%. Эффект не гарантирован.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("DNS-запрос example.com к 1.1.1.1 по UDP каждые 3 с. Только на этом экране; при сворачивании останавливается. При низком заряде или потере мобильной сети — пауза и повторные попытки, пока экран открыт. Эффект не гарантирован; расходует батарею и трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(keepAliveState.description(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             }
-                            Switch(checked = keepAliveOn, onCheckedChange = {
-                                keepAliveOn = it
+                            Switch(checked = keepAliveState != KeepAliveStatus.STOPPED, onCheckedChange = {
                                 if (it) keepAliveEngine.start(scope, KeepAliveProfile.MAX) else keepAliveEngine.stop()
                             })
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { openRadioInfo(context) }, modifier = Modifier.weight(1f)) { Text("📡 Открыть меню 4G/5G") }
+                            OutlinedButton(onClick = { radioError = !openRadioInfo(context) }, modifier = Modifier.weight(1f)) { Text("📡 Открыть настройки сети") }
                         }
+                        if (radioError) Text("Не удалось открыть настройки; откройте настройки сети вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -417,7 +412,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Если ПК не получает интернет: некоторые операторы режут раздачу по TTL. Попробуйте TTL 64/128 (нужен Shizuku/Root) или проверьте, что на тарифе разрешена раздача.",
+                            "Если ПК не получает интернет, проверьте разрешение раздачи в тарифе, USB-подключение и настройки модема телефона. Приложение не изменяет TTL или параметры сети.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -624,45 +619,14 @@ private fun RadarCanvas(rsrp: Int, soundOn: Boolean = true, vibOn: Boolean = fal
     }
 }
 
-private fun openInternetPanel(context: android.content.Context) {
-    // Системная панель интернета: авиарежим в 1 тап = перерегистрация на ближнюю соту
-    try {
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
-            val panelCls = Class.forName("android.provider.Settings\$Panel")
-            val m = panelCls.getMethod("createInternetPanelIntent", android.content.Context::class.java)
-            val panel = m.invoke(null, context) as android.content.Intent
-            panel.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(panel)
-            return
-        }
-    } catch (_: Exception) { }
-    try {
-        context.startActivity(
-            android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS).apply {
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-        )
-    } catch (_: Exception) { }
-}
-
-private fun openRadioInfo(context: android.content.Context) {
-    val intents = listOf(
-        "com.android.phone.settings.RadioInfo",
-        "com.android.settings.RadioInfo"
-    )
-    for (cls in intents) {
+private fun openRadioInfo(context: android.content.Context): Boolean {
+    val actions = listOf(android.provider.Settings.ACTION_NETWORK_OPERATOR_SETTINGS, android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+    for (action in actions) {
         try {
-            val intent = android.content.Intent().apply {
-                setClassName("com.android.phone", cls)
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-            return
-        } catch (_: Exception) { }
+            context.startActivity(android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            return true
+        } catch (_: android.content.ActivityNotFoundException) {
+        } catch (_: SecurityException) { }
     }
-    try {
-        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NETWORK_OPERATOR_SETTINGS).apply {
-            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-        })
-    } catch (_: Exception) { }
+    return false
 }

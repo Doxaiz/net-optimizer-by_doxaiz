@@ -12,6 +12,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
@@ -19,6 +22,8 @@ import com.doxaiz.netoptimizer.core.dns.DnsServer
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
 import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
 import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
+import com.doxaiz.netoptimizer.core.net.KeepAliveStatus
+import com.doxaiz.netoptimizer.core.net.description
 import com.doxaiz.netoptimizer.core.net.PingTarget
 import com.doxaiz.netoptimizer.core.net.PingTester
 import com.doxaiz.netoptimizer.core.util.ConnectionScore
@@ -28,6 +33,7 @@ import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 enum class WorkMode(val label: String, val color: Color) {
     NORMAL("Обычный", AccentCyan), GAME("Игра", AccentViolet), USB("USB-модем", AccentGreen)
@@ -45,22 +51,38 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var comparison by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var report by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
-    var keepAliveOn by remember { mutableStateOf(false) }
-    val keepAlive = remember { KeepAliveEngine(context) }
-    DisposableEffect(keepAlive) { onDispose { keepAlive.stop() } }
+    var boostJob by remember { mutableStateOf<Job?>(null) }
+    val keepAlive = remember { KeepAliveEngine(context.applicationContext) }
+    val keepAliveState by keepAlive.state.collectAsState()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, keepAlive) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                boostJob?.cancel()
+                keepAlive.stop()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            boostJob?.cancel()
+            keepAlive.stop()
+        }
+    }
     val validSignal = signal.rsrp in -160..-30
     val score = ConnectionScore.calculate(ping, signal.rsrp)
 
     fun boost() {
         if (busy) return
         comparison = null
+        keepAlive.stop()
         val network = CellularNetwork.active(context)
         if (network == null) {
             report = listOf("Активная мобильная сеть не найдена. Подключите мобильный интернет и повторите попытку.")
             return
         }
         busy = true
-        scope.launch {
+        boostJob = scope.launch {
             try {
                 val lines = mutableListOf<String>()
                 val target = PingTarget("Яндекс", "yandex.ru", 443, "")
@@ -72,11 +94,9 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 if (CellularNetwork.batteryOk(context) && CellularNetwork.active(context) == network) {
                     val profile = if (mode == WorkMode.NORMAL) KeepAliveProfile.BALANCE else KeepAliveProfile.MAX
                     keepAlive.start(scope, profile)
-                    keepAliveOn = true
-                    lines += "UDP Keep-Alive запущен на этом экране; эффект зависит от сети."
+                    lines += "UDP Keep-Alive включён на этом экране; эффект зависит от сети."
                 } else {
                     keepAlive.stop()
-                    keepAliveOn = false
                     lines += "Keep-Alive не запущен: заряд ниже 20%, неизвестен или сеть изменилась."
                 }
                 val after = tester.test(target)
@@ -118,6 +138,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             Button(onClick = { boost() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                 Text(if (busy) "ИЗМЕРЯЕМ…" else "⚡ УЛУЧШИТЬ")
             }
+            Text("Запуск делает замеры и включает экспериментальный Keep-Alive: UDP-запрос example.com к 1.1.1.1. При сворачивании и уходе с экрана работа останавливается.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
         if (comparison != null || report.isNotEmpty()) item {
@@ -146,8 +167,8 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 Column(Modifier.padding(16.dp)) {
                     Text("АВТОПИЛОТ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("Фоновый автопилот пока недоступен", style = MaterialTheme.typography.titleSmall)
-                    Text("Keep-Alive работает только на этом экране и приостанавливается при заряде ниже 20%.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (keepAliveOn) TextButton(onClick = { keepAlive.stop(); keepAliveOn = false }) { Text("Остановить Keep-Alive") }
+                    Text("Keep-Alive: ${keepAliveState.description()}. Пауза при низком заряде или потере мобильной сети, затем повторные попытки, пока экран открыт. Расходует батарею и трафик; эффект не гарантирован.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (keepAliveState != KeepAliveStatus.STOPPED) TextButton(onClick = { keepAlive.stop() }) { Text("Остановить Keep-Alive") }
                 }
             }
         }
