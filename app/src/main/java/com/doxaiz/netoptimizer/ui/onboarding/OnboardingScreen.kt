@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.location.LocationManager
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,6 +37,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
     val traffic = remember { TrafficMonitor(context.applicationContext) }
     var interfaceMode by rememberSaveable { mutableStateOf(OnboardingPrefs.loadInterfaceMode(context) ?: InterfaceMode.SIMPLE) }
     var cellAccess by remember { mutableStateOf(hasLocation(context)) }
+    var locationEnabled by remember { mutableStateOf(isLocationEnabled(context)) }
     var usageAccess by remember { mutableStateOf(traffic.hasUsageAccess()) }
     var batteryExempt by remember { mutableStateOf(isBatteryExempt(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
@@ -44,6 +46,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
 
     fun refresh() {
         cellAccess = hasLocation(context)
+        locationEnabled = isLocationEnabled(context)
         usageAccess = traffic.hasUsageAccess()
         batteryExempt = isBatteryExempt(context)
         shizukuStatus = ShizukuManager.status()
@@ -109,6 +112,10 @@ fun OnboardingScreen(onDone: () -> Unit) {
                             locationRequest.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
                         }
                         if (!cellAccess) TextButton(onClick = { if (!openAppDetails(context)) message = "Откройте настройки приложения в Android вручную." }) { Text("Открыть разрешения приложения") }
+                        if (locationEnabled == false) {
+                            Text("Местоположение телефона выключено. На некоторых устройствах его тоже нужно включить для данных о соте; результат зависит от Android и модема.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick = { if (!open(context, Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))) message = "Откройте настройки местоположения Android вручную." }) { Text("Настройки местоположения") }
+                        }
                         HorizontalDivider()
                         SetupItem("Трафик приложений", if (usageAccess) "Доступ к статистике включён." else "Нужен доступ к истории использования, чтобы увидеть расход мобильного интернета по приложениям.", usageAccess) {
                             if (!traffic.openUsageAccess()) message = "Откройте доступ к истории использования в настройках Android вручную."
@@ -168,6 +175,10 @@ private fun SetupItem(title: String, description: String, ready: Boolean, action
 
 private fun hasLocation(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+private fun isLocationEnabled(context: Context): Boolean? = try {
+    context.getSystemService(LocationManager::class.java)?.isLocationEnabled
+} catch (_: Exception) { null }
 
 private fun openAppDetails(context: Context): Boolean = open(context, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
     data = Uri.parse("package:${context.packageName}")
