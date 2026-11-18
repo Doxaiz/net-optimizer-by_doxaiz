@@ -18,6 +18,6 @@ internal fun homeCheckSummary(result: PingResult): HomeCheckSummary = when (resu
     PingStatus.COMPLETED -> if (result.avgMs < 0 || result.successfulAttempts <= 0 || result.attemptsMade <= 0) {
         HomeCheckSummary("Нет ответа", "Сайт не ответил на TCP-подключения. Попробуйте ещё раз.", false)
     } else {
-        HomeCheckSummary("${result.avgMs} мс", "До сайта Яндекса · ответов ${result.successfulAttempts}/${result.attemptsMade}. В играх может отличаться.", true)
+        HomeCheckSummary("${result.avgMs} мс", "До сайта Яндекса на момент замера · ответов ${result.successfulAttempts}/${result.attemptsMade}. В играх может отличаться.", true)
     }
 }

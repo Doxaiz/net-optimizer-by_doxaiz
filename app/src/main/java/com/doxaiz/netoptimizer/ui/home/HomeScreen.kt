@@ -25,6 +25,7 @@ import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
 import com.doxaiz.netoptimizer.core.dns.DnsServer
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
 import android.os.SystemClock
+import android.net.Network
 import com.doxaiz.netoptimizer.core.net.PingResult
 import com.doxaiz.netoptimizer.core.net.PingTarget
 import com.doxaiz.netoptimizer.core.net.PingTester
@@ -39,6 +40,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 enum class WorkMode(val label: String, val color: Color) {
@@ -64,6 +67,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
     var attemptsDone by remember { mutableIntStateOf(0) }
     var attemptsTotal by remember { mutableIntStateOf(6) }
     var checkResult by remember { mutableStateOf<PingResult?>(null) }
+    var measuredNetwork by remember { mutableStateOf<Network?>(null) }
     var errorText by remember { mutableStateOf("") }
     val busy = checkPhase == CheckPhase.CONNECTING || checkPhase == CheckPhase.TCP || checkPhase == CheckPhase.DNS
     var boostJob by remember { mutableStateOf<Job?>(null) }
@@ -72,6 +76,11 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
                 boostJob?.cancel()
+                if (checkPhase == CheckPhase.DONE) {
+                    ping = null; jitter = null; dns = null; checkResult = null; measuredNetwork = null
+                    errorText = "Результат сброшен после сворачивания. Повторите проверку."
+                    checkPhase = CheckPhase.ERROR
+                }
             }
         }
         lifecycle.addObserver(observer)
@@ -80,12 +89,26 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
             boostJob?.cancel()
         }
     }
+    LaunchedEffect(foregroundSinceMs, measuredNetwork, checkPhase) {
+        val checkedNetwork = measuredNetwork
+        if (foregroundSinceMs != null && checkedNetwork != null && checkPhase == CheckPhase.DONE) {
+            while (isActive) {
+                if (CellularNetwork.active(context) != checkedNetwork) {
+                    ping = null; jitter = null; dns = null; checkResult = null; measuredNetwork = null
+                    errorText = "Сеть изменилась. Повторите проверку."
+                    checkPhase = CheckPhase.ERROR
+                    break
+                }
+                delay(2_000)
+            }
+        }
+    }
     val validSignal = signal.rsrp in -160..-30
     val score = ConnectionScore.calculate(ping, signal.rsrp)
 
     fun measure() {
         if (busy) return
-        ping = null; jitter = null; dns = null; checkResult = null; errorText = ""
+        ping = null; jitter = null; dns = null; checkResult = null; measuredNetwork = null; errorText = ""
         attemptsDone = 0; attemptsTotal = 6
         val network = CellularNetwork.active(context)
         if (network == null) {
@@ -112,6 +135,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 if (CellularNetwork.active(context) != network) {
                     checkResult = result.copy(status = com.doxaiz.netoptimizer.core.net.PingStatus.NETWORK_CHANGED, avgMs = -1, jitterMs = -1, lossPercent = -1, ok = false)
                 } else {
+                    measuredNetwork = network
                     checkResult = result
                     ping = result.avgMs.takeIf { it >= 0 }
                     jitter = result.jitterMs.takeIf { ping != null && it >= 0 }
@@ -119,11 +143,11 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 }
                 checkPhase = CheckPhase.DONE
             } catch (e: CancellationException) {
-                ping = null; jitter = null; dns = null; checkResult = null
+                ping = null; jitter = null; dns = null; checkResult = null; measuredNetwork = null
                 checkPhase = CheckPhase.CANCELLED
                 throw e
             } catch (_: Exception) {
-                ping = null; jitter = null; dns = null; checkResult = null
+                ping = null; jitter = null; dns = null; checkResult = null; measuredNetwork = null
                 errorText = "Не удалось выполнить замер. Попробуйте ещё раз."
                 checkPhase = CheckPhase.ERROR
             } finally { boostJob = null }
