@@ -15,6 +15,14 @@ class DataSaverTest {
         assertEquals(DataSaverStatus.UNKNOWN, DataSaverPolicy.status(-1))
     }
 
+    @Test fun globalStatusIsOnlyAcceptedFromAnExactSystemResponse() {
+        assertEquals(true, DataSaverPolicy.parseGlobal("Restrict background status: enabled\n"))
+        assertEquals(false, DataSaverPolicy.parseGlobal("Restrict background status: disabled\n"))
+        assertEquals(null, DataSaverPolicy.parseGlobal("Error: permission denied"))
+        assertEquals(null, DataSaverPolicy.parseGlobal("enabled"))
+        assertEquals(null, DataSaverPolicy.parseGlobal("Restrict background status: enabled\nerror"))
+    }
+
     @Test fun triesFallbacksAndStopsAfterSuccess() {
         val attempted = mutableListOf<String>()
         val opened = DataSaverPolicy.openFirst(listOf("direct", "network", "general")) {

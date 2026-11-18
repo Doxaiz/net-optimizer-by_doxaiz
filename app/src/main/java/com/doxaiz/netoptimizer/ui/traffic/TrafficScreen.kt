@@ -46,6 +46,7 @@ import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -68,6 +69,11 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
     val optimizer = remember(monitor, scope) { LoadOptimizationController(context.applicationContext, scope) }
     val dataSaver = remember(context) { DataSaver(context.applicationContext) }
     var dataSaverStatus by remember(dataSaver) { mutableStateOf(dataSaver.status()) }
+    var shizukuReady by remember { mutableStateOf(ShizukuManager.isReady()) }
+    var globalDataSaver by remember { mutableStateOf<Boolean?>(null) }
+    var pendingDataSaver by remember { mutableStateOf<Boolean?>(null) }
+    var dataSaverBusy by remember { mutableStateOf(false) }
+    var dataSaverMessage by remember { mutableStateOf<String?>(null) }
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
@@ -88,11 +94,11 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
     DisposableEffect(lifecycle, optimizer, dataSaver) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> { foreground = true; dataSaverStatus = dataSaver.status(); optimizer.onStart() }
+                Lifecycle.Event.ON_START -> { foreground = true; dataSaverStatus = dataSaver.status(); shizukuReady = ShizukuManager.isReady(); optimizer.onStart() }
                 Lifecycle.Event.ON_STOP -> {
                     foreground = false
                     optimizer.onStop()
-                    pendingStop = null; pendingBatch = false
+                    pendingStop = null; pendingBatch = false; pendingDataSaver = null
                     if (stopping) {
                         stopJob?.cancel()
                         notice = "Оставшиеся команды отменены. Уже запущенная команда могла выполниться."
@@ -103,6 +109,9 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); stopJob?.cancel(); optimizer.clear() }
+    }
+    LaunchedEffect(foreground, shizukuReady) {
+        globalDataSaver = if (foreground && shizukuReady) ShizukuManager.globalDataSaverEnabled() else null
     }
     LaunchedEffect(monitor, foreground) {
         rate = null
@@ -161,6 +170,52 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                 stopJob = null
             }
         }
+    }
+
+    pendingDataSaver?.let { enable ->
+        AlertDialog(
+            onDismissRequest = { pendingDataSaver = null },
+            title = { Text(if (enable) "Ограничить фоновые загрузки?" else "Выключить экономию трафика?") },
+            text = { Text(if (enable)
+                "Android ограничит часть фонового трафика на лимитных сетях, включая лимитный Wi‑Fi. Уведомления и синхронизация могут задержаться. Настройка действует на всём устройстве и останется включённой, пока вы её не выключите."
+                else "Экономия трафика выключится для всего устройства. Фоновые загрузки снова смогут использовать сеть.") },
+            confirmButton = { TextButton(onClick = {
+                pendingDataSaver = null
+                dataSaverBusy = true
+                dataSaverMessage = null
+                scope.launch {
+                    try {
+                        val current = ShizukuManager.globalDataSaverEnabled()
+                        if (current == null || current != !enable) {
+                            globalDataSaver = current
+                            dataSaverMessage = "Настройка изменилась или недоступна. Проверьте её и повторите."
+                            return@launch
+                        }
+                        val sent = ShizukuManager.setDataSaver(enable)
+                        var observed = ShizukuManager.globalDataSaverEnabled()
+                        repeat(4) {
+                            if (observed != enable) {
+                                delay(250)
+                                observed = ShizukuManager.globalDataSaverEnabled()
+                            }
+                        }
+                        globalDataSaver = observed
+                        dataSaverStatus = dataSaver.status()
+                        shizukuReady = ShizukuManager.isReady()
+                        dataSaverMessage = if (sent && observed == enable) {
+                            if (enable) "Экономия трафика включена." else "Экономия трафика выключена."
+                        } else "Не удалось подтвердить изменение. Проверьте системные настройки."
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        globalDataSaver = null
+                        dataSaverStatus = dataSaver.status()
+                        dataSaverMessage = "Не удалось подтвердить изменение. Проверьте системные настройки."
+                    } finally { dataSaverBusy = false }
+                }
+            }) { Text(if (enable) "Включить" else "Выключить") } },
+            dismissButton = { TextButton(onClick = { pendingDataSaver = null }) { Text("Отмена") } }
+        )
     }
 
     pendingStop?.let { app ->
@@ -230,7 +285,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
             Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
-        item { LoadOptimizationCard(optimizer, details, dataSaverStatus, dataSaver::openSettings) }
+        item {
+            LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy, dataSaverMessage,
+                onDirectChange = { pendingDataSaver = it }, openDataSaver = dataSaver::openSettings)
+        }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -253,7 +311,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                             FilterChip(selected = period == choice, onClick = { period = choice }, label = { Text(choice.label) })
                         }
                     }
-                    Text(if (details) "7 дней включают сегодня; месяц считается с первого числа. Данные относятся только к мобильным сетям и могут обновляться с задержкой. Это не текущая скорость и не счёт оператора." else "Расход за период; Android может показывать данные с задержкой.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (details) "7 дней включают сегодня; месяц считается с первого числа. Данные относятся только к мобильным сетям и могут обновляться с задержкой. Это не текущая скорость и не счёт оператора." else "Расход за период, не текущая активность. Данные могут запаздывать.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (!loading && summary?.status == TrafficSummaryStatus.READY) {
                         summary?.window?.let { Text("Период: ${formatWindow(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         val apps = summary?.apps.orEmpty()
@@ -302,13 +360,19 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                 Text("Защищённых записей с расходом за выбранный период нет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        if (!details && notice != null) item {
+            Text(notice!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
         items(if (details) shown else summary?.apps.orEmpty(), key = { it.uid }) { app ->
             if (!details) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(app.label, style = MaterialTheme.typography.titleSmall)
-                        Text("Израсходовано: ${formatBytes(app.totalBytes)}", color = AccentCyan)
-                        if (app.packageNames.size > 1) Text("Общие данные нескольких приложений, по отдельности недоступны.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("За период: ${formatBytes(app.totalBytes)}", color = MaterialTheme.colorScheme.primary)
+                        if (app.packageNames.size > 1) Text("Общие данные нескольких приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (!isProtected(app) && app.packageNames.size == 1) {
+                            TextButton(onClick = { pendingStop = app }, enabled = !stopping) { Text("Остановить приложение") }
+                        }
                     }
                 }
             } else {
@@ -336,7 +400,16 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
 }
 
 @Composable
-private fun LoadOptimizationCard(controller: LoadOptimizationController, details: Boolean, dataSaverStatus: DataSaverStatus, openDataSaver: () -> Boolean) {
+private fun LoadOptimizationCard(
+    controller: LoadOptimizationController,
+    details: Boolean,
+    dataSaverStatus: DataSaverStatus,
+    globalDataSaver: Boolean?,
+    dataSaverBusy: Boolean,
+    dataSaverMessage: String?,
+    onDirectChange: (Boolean) -> Unit,
+    openDataSaver: () -> Boolean
+) {
     val state = controller.state
     var settingsUnavailable by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
@@ -377,17 +450,25 @@ private fun LoadOptimizationCard(controller: LoadOptimizationController, details
             }
             if (state.phase != LoadPhase.IDLE) TextButton(onClick = { controller.clear() }) { Text(if (state.phase == LoadPhase.BASELINE || state.phase == LoadPhase.CHECKING) "Отменить" else "Начать заново") }
             HorizontalDivider()
-            Text("Экономия трафика Android: " + when (dataSaverStatus) {
-                DataSaverStatus.OFF -> "выключена"
-                DataSaverStatus.ON -> "включена"
-                DataSaverStatus.ON_APP_EXEMPT -> "включена (это приложение в исключениях)"
-                DataSaverStatus.UNKNOWN -> "состояние неизвестно"
-            }, style = MaterialTheme.typography.titleSmall)
-            Text("Может ограничить фоновые загрузки на лимитных сетях и освободить канал. Уведомления и синхронизация могут задерживаться; исключения настраиваются в Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = { settingsUnavailable = !openDataSaver() }, enabled = state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) { Text("Настроить экономию трафика") }
+            Text("Фоновый трафик этого приложения: " + when (dataSaverStatus) {
+                DataSaverStatus.OFF -> "без ограничений"
+                DataSaverStatus.ON -> "ограничен"
+                DataSaverStatus.ON_APP_EXEMPT -> "в исключениях"
+                DataSaverStatus.UNKNOWN -> "неизвестно"
+            }, style = MaterialTheme.typography.bodySmall)
+            if (globalDataSaver != null) Text("Экономия трафика Android: " + if (globalDataSaver) "включена" else "выключена", style = MaterialTheme.typography.titleSmall)
+            Text("Ограничивает часть фоновых загрузок на лимитных сетях. Эффект не гарантирован.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (globalDataSaver != null) {
+                val enable = !globalDataSaver
+                Button(onClick = { onDirectChange(enable) }, enabled = !dataSaverBusy && state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (dataSaverBusy) "Меняем настройку…" else if (enable) "Включить через Shizuku" else "Выключить через Shizuku")
+                }
+            }
+            OutlinedButton(onClick = { settingsUnavailable = !openDataSaver() }, enabled = !dataSaverBusy && state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) { Text("Настроить экономию трафика") }
+            dataSaverMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             if (settingsUnavailable) Text("Не удалось открыть настройки. Найдите «Экономия трафика» в настройках Android вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            Text("Включите или выключите вручную в настройках. Если открылась общая страница, найдите «Экономия трафика». Настройка может действовать и на лимитном Wi‑Fi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Проверяется задержка до сайта Яндекса, не скорость и не пинг игры. Улучшение не гарантировано.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Настройка общая для устройства и может задержать уведомления. Без Shizuku включите её в Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Задержка до сайта Яндекса, не скорость и не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (details) {
                 Text("Шесть TCP-подключений к одному IP; требуется минимум четыре ответа. При USB-модеме проверьте загрузки на ПК. Остановка приложений доступна ниже после подтверждения и влияет на всё приложение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Для сравнения скорости используйте два спидтеста в Инструменты → Замеры (до 15 МБ каждый). При сворачивании замер отменяется; сравнение хранится до 10 минут и сбрасывается при смене сети.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

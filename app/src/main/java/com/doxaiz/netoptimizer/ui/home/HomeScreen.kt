@@ -1,17 +1,13 @@
 package com.doxaiz.netoptimizer.ui.home
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -29,8 +25,6 @@ import android.net.Network
 import com.doxaiz.netoptimizer.core.net.PingResult
 import com.doxaiz.netoptimizer.core.net.PingTarget
 import com.doxaiz.netoptimizer.core.net.PingTester
-import com.doxaiz.netoptimizer.core.util.ConnectionScore
-import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.core.util.QualityText
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
@@ -59,7 +53,6 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
     val signal = if (SignalFreshness.canDisplay(freshness)) rawSignal else rawSignal.withoutCellData()
     var expanded by rememberSaveable { mutableStateOf(false) }
     val details = expert || expanded
-    var mode by remember { mutableStateOf(OnboardingPrefs.loadMode(context)?.let { runCatching { WorkMode.valueOf(it) }.getOrNull() } ?: WorkMode.NORMAL) }
     var ping by remember { mutableStateOf<Int?>(null) }
     var jitter by remember { mutableStateOf<Int?>(null) }
     var dns by remember { mutableStateOf<DnsServer?>(null) }
@@ -104,7 +97,6 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
         }
     }
     val validSignal = signal.rsrp in -160..-30
-    val score = ConnectionScore.calculate(ping, signal.rsrp)
 
     fun measure() {
         if (busy) return
@@ -158,17 +150,17 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
         item {
             Text("ГЛАВНАЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
-        if (!details) item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Мобильная сеть", style = MaterialTheme.typography.titleMedium)
-                    Text(if (validSignal) "${QualityText.signal(signal.rsrp)} · ${signal.rsrp} дБм" else "Нет свежих данных о сигнале", style = MaterialTheme.typography.bodyLarge, color = when {
-                        !validSignal -> MaterialTheme.colorScheme.onSurfaceVariant
-                        signal.rsrp >= -90 -> AccentGreen
-                        signal.rsrp >= -100 -> AccentCyan
-                        else -> AccentRed
-                    })
-                    Text(if (validSignal && freshness == SignalFreshnessStatus.UNKNOWN_MODEM_TIME) "Возраст данных неизвестен." else if (validSignal) "Уровень сигнала, не скорость интернета." else "Проверьте доступ к местоположению в настройках ниже.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Мобильная сеть", style = MaterialTheme.typography.headlineSmall)
+                    Text(if (validSignal) "${QualityText.signal(signal.rsrp)} · ${signal.rsrp} дБм" else "Сигнал недоступен", style = MaterialTheme.typography.titleMedium)
+                    Text(if (validSignal && freshness == SignalFreshnessStatus.UNKNOWN_MODEM_TIME) "Возраст данных неизвестен" else if (validSignal) "Уровень сигнала, не скорость" else "Замеры работают и без данных о сигнале", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -219,25 +211,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 if (!expert) TextButton(onClick = { expanded = !expanded }, enabled = !busy) { Text(if (expanded) "Скрыть подробности" else "Показать подробности") }
             }
         }
-        if (details) item {
-            Text("РЕЖИМ РАБОТЫ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                WorkMode.entries.forEach { m ->
-                    FilterChip(selected = mode == m, onClick = { mode = m; OnboardingPrefs.saveMode(context, m.name) }, label = { Text(m.label, maxLines = 1, style = MaterialTheme.typography.labelSmall) }, modifier = Modifier.weight(1f))
-                }
-            }
-        }
-        if (details) item {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("КАЧЕСТВО СОЕДИНЕНИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(12.dp))
-                ScoreRing(score)
-                Spacer(Modifier.height(8.dp))
-                Text(score?.let { QualityText.scoreVerdict(it) } ?: "Ожидание данных", style = MaterialTheme.typography.titleMedium)
-                Text("Оценка по TCP-задержке и сигналу, не гарантия скорости", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        item { ConnectionGuide(hasDisplayableSignal = validSignal) }
+        if (details) item { ConnectionGuide(hasDisplayableSignal = validSignal) }
         if (details) item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricCard("ПИНГ · TCP", ping?.let { "$it мс" } ?: "—", ping?.let { QualityText.ping(it) + (jitter?.let { value -> " · джиттер $value мс" } ?: " · джиттер недоступен") } ?: "Нет замера", Modifier.weight(1f), ping?.let { if (it <= 70) AccentGreen else MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
@@ -249,30 +223,6 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 MetricCard("DNS · КАНДИДАТ", dns?.let { "${it.ms} мс" } ?: "—", dns?.let { "${it.name} · не подключён" } ?: "Нет замера", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
                 MetricCard("СЕТЬ", signal.networkType, "${signal.operator} · ${signal.band}", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
             }
-        }
-        if (details) item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("АВТОПИЛОТ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("Фоновый автопилот пока недоступен", style = MaterialTheme.typography.titleSmall)
-                    Text("Экспериментальный Keep-Alive включается только вручную в Инструменты → Сигнал. Он расходует батарею и трафик и не гарантирует снижения задержки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ScoreRing(score: Int?) {
-    val brush = Brush.linearGradient(listOf(AccentCyan, AccentViolet, AccentGreen))
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(170.dp)) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawArc(Color.Gray.copy(alpha = .2f), 0f, 360f, false, style = Stroke(14f))
-            if (score != null) drawArc(brush, -90f, 360f * score / 100f, false, style = Stroke(14f, cap = StrokeCap.Round))
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(score?.toString() ?: "—", style = MaterialTheme.typography.displayMedium)
-            Text("из 100", style = MaterialTheme.typography.labelSmall)
         }
     }
 }

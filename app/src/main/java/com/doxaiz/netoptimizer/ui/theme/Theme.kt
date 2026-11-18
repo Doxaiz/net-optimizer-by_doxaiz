@@ -1,10 +1,13 @@
 package com.doxaiz.netoptimizer.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 enum class DoxaizThemeKind { AURORA, CYBER, LIGHT }
 
@@ -55,6 +58,14 @@ private val LightScheme = lightColorScheme(
     outline = LightLine
 )
 
+private val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp)
+)
+
 @Composable
 fun DoxaizTheme(kind: DoxaizThemeKind, content: @Composable () -> Unit) {
     val scheme = when (kind) {
@@ -62,5 +73,5 @@ fun DoxaizTheme(kind: DoxaizThemeKind, content: @Composable () -> Unit) {
         DoxaizThemeKind.CYBER -> CyberScheme
         DoxaizThemeKind.LIGHT -> LightScheme
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = scheme, shapes = AppShapes, content = content)
 }

@@ -16,6 +16,14 @@ internal object DataSaverPolicy {
         else -> DataSaverStatus.UNKNOWN
     }
 
+    /** Only a privileged system query can confirm the global setting: the app's own
+     * status may be restricted independently of global Data Saver. */
+    fun parseGlobal(output: String): Boolean? = when (output.trim()) {
+        "Restrict background status: enabled" -> true
+        "Restrict background status: disabled" -> false
+        else -> null
+    }
+
     /** Try settings screens in order; a vendor may omit or reject any individual action. */
     fun openFirst(actions: List<String>, open: (String) -> Boolean): Boolean {
         for (action in actions) if (open(action)) return true

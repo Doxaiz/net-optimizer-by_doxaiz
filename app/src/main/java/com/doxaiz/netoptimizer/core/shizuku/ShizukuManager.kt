@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import com.doxaiz.netoptimizer.core.traffic.DataSaverPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
+import java.util.concurrent.TimeUnit
 
 /**
  * Shizuku: опциональные «супер-фичи» без root.
@@ -36,21 +38,32 @@ object ShizukuManager {
         } catch (_: Exception) { false }
     }
 
-    /** Выполнить shell-команду через Shizuku (newProcess — private в API 13.x) */
-    private fun runCommand(vararg cmd: String): Boolean = try {
+    /** Commands use fixed arguments, not shell interpolation. */
+    private fun newProcess(vararg cmd: String): Process? = try {
         val cls = Class.forName("rikka.shizuku.Shizuku")
-        val m = cls.getDeclaredMethod(
-            "newProcess",
-            Array<String>::class.java, Array<String>::class.java, String::class.java
+        val method = cls.getDeclaredMethod(
+            "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
         )
-        m.isAccessible = true
-        val process = m.invoke(null, cmd, null, null) ?: return false
-        val pcls = process.javaClass
-        pcls.getMethod("waitFor").invoke(process)
-        val code = pcls.getMethod("exitValue").invoke(process)
-        code == 0
-    } catch (_: Exception) {
-        false
+        method.isAccessible = true
+        method.invoke(null, cmd, null, null) as? Process
+    } catch (_: Exception) { null }
+
+    private fun runCommand(vararg cmd: String): Boolean {
+        val process = newProcess(*cmd) ?: return false
+        return try {
+            process.waitFor(6, TimeUnit.SECONDS) && process.exitValue() == 0
+        } catch (_: Exception) { false }
+        finally { try { process.destroy() } catch (_: Exception) { } }
+    }
+
+    /** The fixed netpolicy query has short output; unknown/vendor responses are not success. */
+    private fun readGlobalDataSaver(): Boolean? {
+        val process = newProcess("cmd", "netpolicy", "get", "restrict-background") ?: return null
+        return try {
+            if (!process.waitFor(6, TimeUnit.SECONDS) || process.exitValue() != 0) null
+            else DataSaverPolicy.parseGlobal(process.inputStream.bufferedReader().use { it.readText() })
+        } catch (_: Exception) { null }
+        finally { try { process.destroy() } catch (_: Exception) { } }
     }
 
     fun status(): Status = try {
@@ -115,6 +128,18 @@ object ShizukuManager {
     suspend fun forceStopApp(packageName: String): Boolean = withContext(Dispatchers.IO) {
         if (!isReady()) return@withContext false
         runCommand("am", "force-stop", packageName)
+    }
+
+    /** Null means Shizuku or the global system status could not be verified. */
+    suspend fun globalDataSaverEnabled(): Boolean? = withContext(Dispatchers.IO) {
+        if (!isReady()) return@withContext null
+        readGlobalDataSaver()
+    }
+
+    /** Only call after explicit confirmation: this persistent setting affects the whole device. */
+    suspend fun setDataSaver(enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
+        if (!isReady()) return@withContext false
+        runCommand("cmd", "netpolicy", "set", "restrict-background", if (enabled) "true" else "false")
     }
 
     /** Disabled: toggling mobile data does not guarantee a different cell and can break tethering. */
