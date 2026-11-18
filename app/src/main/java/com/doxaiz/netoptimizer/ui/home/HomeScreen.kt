@@ -23,12 +23,7 @@ import com.doxaiz.netoptimizer.core.cellular.withoutCellData
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
 import com.doxaiz.netoptimizer.core.dns.DnsServer
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
-import com.doxaiz.netoptimizer.core.net.BatteryHealth
 import android.os.SystemClock
-import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
-import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
-import com.doxaiz.netoptimizer.core.net.KeepAliveStatus
-import com.doxaiz.netoptimizer.core.net.description
 import com.doxaiz.netoptimizer.core.net.PingTarget
 import com.doxaiz.netoptimizer.core.net.PingTester
 import com.doxaiz.netoptimizer.core.util.ConnectionScore
@@ -39,13 +34,14 @@ import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 
 enum class WorkMode(val label: String, val color: Color) {
     NORMAL("Обычный", AccentCyan), GAME("Игра", AccentViolet), USB("USB-модем", AccentGreen)
 }
 
 @Composable
-fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long) {
+fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long, onOptimize: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val rawSignal by monitor.state.collectAsState()
@@ -55,34 +51,29 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
     var ping by remember { mutableStateOf<Int?>(null) }
     var jitter by remember { mutableStateOf<Int?>(null) }
     var dns by remember { mutableStateOf<DnsServer?>(null) }
-    var comparison by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var report by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var boostJob by remember { mutableStateOf<Job?>(null) }
-    val keepAlive = remember { KeepAliveEngine(context.applicationContext) }
-    val keepAliveState by keepAlive.state.collectAsState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, keepAlive) {
+    DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
                 boostJob?.cancel()
-                keepAlive.stop()
             }
         }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
             boostJob?.cancel()
-            keepAlive.stop()
         }
     }
     val validSignal = signal.rsrp in -160..-30
     val score = ConnectionScore.calculate(ping, signal.rsrp)
 
-    fun boost() {
+    fun measure() {
         if (busy) return
-        comparison = null
-        keepAlive.stop()
+        report = emptyList()
+        ping = null; jitter = null; dns = null
         val network = CellularNetwork.active(context)
         if (network == null) {
             report = listOf("Активная мобильная сеть не найдена. Подключите мобильный интернет и повторите попытку.")
@@ -91,37 +82,22 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
         busy = true
         boostJob = scope.launch {
             try {
-                val lines = mutableListOf<String>()
                 val target = PingTarget("Яндекс", "yandex.ru", 443, "")
-                val tester = PingTester(context)
-                val before = tester.test(target)
+                val result = PingTester(context).test(target)
                 val best = DnsBenchmark(context).benchmarkAll().firstOrNull { it.ms >= 0 }
-                dns = best
-                lines += if (best != null) "DNS-кандидат по UDP: ${best.name} · ${best.ms} мс. DoT не проверялся. Настроить вручную можно в Инструменты → DNS." else "DNS: не удалось получить ответ."
-                if (CellularNetwork.batteryOk(context) && CellularNetwork.active(context) == network) {
-                    val profile = if (mode == WorkMode.NORMAL) KeepAliveProfile.BALANCE else KeepAliveProfile.MAX
-                    keepAlive.start(scope, profile)
-                    lines += "UDP Keep-Alive включён на этом экране; эффект зависит от сети."
-                } else {
-                    keepAlive.stop()
-                    lines += "Keep-Alive не запущен: заряд ниже 20%, неизвестен или сеть изменилась."
-                }
-                val after = tester.test(target)
                 val sameNetwork = CellularNetwork.active(context) == network
-                ping = after.avgMs.takeIf { it >= 0 && sameNetwork }
-                jitter = after.jitterMs.takeIf { ping != null && it >= 0 }
-                if (before.avgMs >= 0 && after.avgMs >= 0 && sameNetwork) {
-                    comparison = before.avgMs to after.avgMs
-                    lines += "Измерена TCP-задержка до Яндекса. Разница может быть случайной и не равна пингу игры."
-                } else {
-                    lines += "Сравнение недоступно: замер не удался или мобильная сеть изменилась."
-                }
-                signal.battery?.temperatureTenths?.takeIf {
-                    it > 420 && BatteryHealth.isFresh(signal.batteryObservedAtMs, 0L, SystemClock.elapsedRealtime())
-                }?.let { temperature ->
-                    lines += "Температура батареи %.1f °C: дайте устройству остыть.".format(temperature / 10.0)
-                }
-                report = lines
+                ping = result.avgMs.takeIf { it >= 0 && sameNetwork }
+                jitter = result.jitterMs.takeIf { ping != null && it >= 0 }
+                dns = best.takeIf { sameNetwork }
+                report = listOf(
+                    if (ping != null) "TCP-задержка до сайта Яндекса; это не пинг игрового сервера." else "TCP-замер не удался или мобильная сеть изменилась.",
+                    if (dns != null) "DNS-кандидат по UDP: ${dns!!.name} · ${dns!!.ms} мс. DoT не проверялся; подключение вручную в Инструменты → DNS." else "DNS: результат недоступен или сеть изменилась."
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ping = null; jitter = null; dns = null
+                report = listOf("Не удалось выполнить замер. Попробуйте ещё раз.")
             } finally { busy = false }
         }
     }
@@ -146,17 +122,19 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
             }
         }
         item {
-            Button(onClick = { boost() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                Text(if (busy) "ИЗМЕРЯЕМ…" else "⚡ УЛУЧШИТЬ")
+            Button(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Text("⚡ УЛУЧШИТЬ")
             }
-            Text("Запуск делает замеры и включает экспериментальный Keep-Alive: UDP-запрос example.com к 1.1.1.1. При сворачивании и уходе с экрана работа останавливается.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Откроется снижение нагрузки на сеть: вы сами выбираете действие, затем можно сравнить задержку до и после.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (busy) "ИЗМЕРЯЕМ…" else "Измерить связь и DNS")
+            }
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
-        if (comparison != null || report.isNotEmpty()) item {
+        if (report.isNotEmpty()) item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("РЕЗУЛЬТАТ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    comparison?.let { (a, b) -> Text("До $a мс  →  После $b мс", style = MaterialTheme.typography.titleLarge) }
                     report.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
@@ -178,8 +156,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 Column(Modifier.padding(16.dp)) {
                     Text("АВТОПИЛОТ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("Фоновый автопилот пока недоступен", style = MaterialTheme.typography.titleSmall)
-                    Text("Keep-Alive: ${keepAliveState.description()}. Пауза при низком заряде или потере мобильной сети, затем повторные попытки, пока экран открыт. Расходует батарею и трафик; эффект не гарантирован.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (keepAliveState != KeepAliveStatus.STOPPED) TextButton(onClick = { keepAlive.stop() }) { Text("Остановить Keep-Alive") }
+                    Text("Экспериментальный Keep-Alive включается только вручную в Инструменты → Сигнал. Он расходует батарею и трафик и не гарантирует снижения задержки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

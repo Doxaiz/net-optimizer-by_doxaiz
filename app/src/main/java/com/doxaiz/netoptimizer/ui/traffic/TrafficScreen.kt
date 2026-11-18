@@ -28,6 +28,10 @@ import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummaryStatus
 import com.doxaiz.netoptimizer.core.traffic.TrafficPeriod
 import com.doxaiz.netoptimizer.core.traffic.TrafficWindow
+import com.doxaiz.netoptimizer.core.traffic.LoadComparison
+import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
+import com.doxaiz.netoptimizer.core.traffic.LoadPhase
+import com.doxaiz.netoptimizer.core.traffic.LoadSample
 import com.doxaiz.netoptimizer.core.traffic.saturatedAdd
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
@@ -44,6 +48,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
     val monitor = remember { TrafficMonitor(context.applicationContext) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
+    val optimizer = remember(monitor, scope) { LoadOptimizationController(context.applicationContext, scope) }
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
@@ -56,16 +61,16 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
     var notice by remember { mutableStateOf<String?>(null) }
     var pendingStop by remember { mutableStateOf<AppTraffic?>(null) }
 
-    DisposableEffect(lifecycle) {
+    DisposableEffect(lifecycle, optimizer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> foreground = true
-                Lifecycle.Event.ON_STOP -> foreground = false
+                Lifecycle.Event.ON_START -> { foreground = true; optimizer.onStart() }
+                Lifecycle.Event.ON_STOP -> { foreground = false; optimizer.onStop() }
                 else -> Unit
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        onDispose { lifecycle.removeObserver(observer); optimizer.clear() }
     }
     LaunchedEffect(monitor, foreground) {
         rate = null
@@ -126,6 +131,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+        item { LoadOptimizationCard(optimizer) }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,6 +189,46 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
         }
     }
 }
+
+@Composable
+private fun LoadOptimizationCard(controller: LoadOptimizationController) {
+    val state = controller.state
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("СНИЗИТЬ НАГРУЗКУ НА СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text("1. Измерьте задержку. 2. Поставьте ненужные загрузки на паузу или остановите выбранное приложение ниже. При USB-модеме проверьте загрузки и на ПК. 3. Измерьте снова.", style = MaterialTheme.typography.bodySmall)
+            Text("Уменьшение конкурирующего трафика может освободить канал и снизить задержку, но не меняет настройки сети и не гарантирует улучшения. Расход за период ниже не показывает, что приложение использует сеть прямо сейчас.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Для сравнения скорости отдельно запустите два спидтеста в Инструменты → Замеры, до и после паузы загрузок. Каждый тест расходует до 15 МБ плюс служебный трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            state.before?.let { Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium) }
+            state.after?.let { after ->
+                Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)
+                state.before?.let { before ->
+                    LoadComparison.delta(before, after)?.let { delta ->
+                        val text = when {
+                            delta < 0 -> "Средняя TCP-задержка ниже на ${-delta} мс."
+                            delta > 0 -> "Средняя TCP-задержка выше на $delta мс."
+                            else -> "Средняя TCP-задержка не изменилась."
+                        }
+                        Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Text("Это разница двух замеров, а не доказательство причины: нагрузка, маршрут и сота могли измениться.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            when (state.phase) {
+                LoadPhase.IDLE -> Button(onClick = controller::start, modifier = Modifier.fillMaxWidth()) { Text("Начать сравнение") }
+                LoadPhase.BASELINE, LoadPhase.CHECKING -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                LoadPhase.READY, LoadPhase.RESULT -> Button(onClick = controller::measureAfter, modifier = Modifier.fillMaxWidth()) { Text("Измерить после изменений") }
+            }
+            if (state.phase != LoadPhase.IDLE) TextButton(onClick = { controller.clear() }) { Text("Начать заново") }
+            Text("Каждый замер — 6 TCP-подключений к одному IP сайта Яндекса; нужно минимум 4 успешных. Это не пинг игрового сервера и не проверка скорости. Действия с приложениями выполняются только с вашего подтверждения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("При сворачивании замер отменяется. Сравнение хранится только на этом экране до 10 минут; при смене мобильной сети оно сбрасывается. Между замерами Android отслеживает смену сети без отправки проб.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun loadSampleText(sample: LoadSample): String =
+    "${sample.averageMs} мс · разброс ${sample.jitterMs} мс · ${sample.successes}/${sample.attempts} успешных"
 
 @Composable
 private fun TrafficRow(app: AppTraffic, userProtected: Boolean, onProtection: (Boolean) -> Unit, onStop: () -> Unit) {

@@ -164,7 +164,7 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
             label = "tabTransition"
         ) { tab ->
             when (tab) {
-                0 -> HomeScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock)
+                0 -> HomeScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock, onOptimize = { selected = 2 })
                 1 -> ToolsScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock)
                 2 -> TrafficScreen(modifier = Modifier.padding(padding))
                 3 -> SessionsScreen(
