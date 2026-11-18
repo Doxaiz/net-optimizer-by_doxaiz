@@ -1,0 +1,34 @@
+name: Replace existing test release APK
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and publish the verified audit build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          run=44242349092
+          sha=bf6250a4230cff808b8b9517bae3b50beea3ca2b
+          gh run view "$run" --json conclusion,headSha --jq 'select(.conclusion == "success" and .headSha == "'"$sha"'") | .headSha' | grep -Fx "$sha"
+          gh run download "$run" --name NetOptimizer-by-Doxaiz-release --dir release-apk
+          test -s release-apk/app-release.apk
+          checksum=$(sha256sum release-apk/app-release.apk | cut -d' ' -f1)
+          cat > release-notes.txt <<EOF
+          Тестовая сборка Android 12+. Пять вкладок, мобильные замеры и исправления после аудита.
+
+          APK собран и протестирован в Actions из коммита $sha: https://github.com/$GH_REPO/actions/runs/$run
+          SHA-256 APK: $checksum
+
+          Внимание: исторический ключ подписи был опубликован и скомпрометирован. Эта сборка использует прежний ключ для совместимости. На Infinix Hot 50 ещё не проверено. Резервное копирование локальных данных отключено.
+
+          Тег релиза указывает на прежний коммит; фактический исходный коммит APK указан выше. VPN-фильтрация и фоновый автопилот не реализованы.
+          EOF
+          gh release upload v1.1.1 release-apk/app-release.apk --clobber
+          gh release edit v1.1.1 --notes-file release-notes.txt
