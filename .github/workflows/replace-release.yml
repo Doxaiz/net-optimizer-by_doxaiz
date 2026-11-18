@@ -1,5 +1,10 @@
 name: Replace existing test release APK
 on:
+  push:
+    branches:
+      - arena/d95398fc-net-optimizer-by-doxaiz
+    paths:
+      - .github/workflows/replace-release.yml
   workflow_dispatch:
 permissions:
   actions: read
