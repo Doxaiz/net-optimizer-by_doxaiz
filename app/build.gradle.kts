@@ -13,7 +13,9 @@ android {
         applicationId = "com.doxaiz.netoptimizer"
         minSdk = 31
         targetSdk = 34
-        versionCode = 1
+        // Android forbids upgrading from the old public build (versionCode 11) to a lower code.
+        // The user-facing release numbering can restart independently of this monotonic value.
+        versionCode = 12
         versionName = "1.0.0"
     }
 
