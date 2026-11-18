@@ -61,7 +61,11 @@ try:
     tap("Снизить нагрузку на сеть")
     time.sleep(4)
     print("Traffic screen initially:", [(n.attrib.get("text"), n.attrib.get("bounds")) for n in h["nodes"]() if n.attrib.get("text")], flush=True)
-    scroll_to("Включить через Shizuku")
+    try:
+        scroll_to("Включить через Shizuku")
+    except RuntimeError:
+        print("Command diagnostics:", adb("logcat", "-d", "-s", "NetOptShizuku:W", check=False)[-2000:], flush=True)
+        raise
     tap("Включить через Shizuku")
     verify("Ограничить фоновые загрузки?")
     tap("Отмена")

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.util.Log
 import com.doxaiz.netoptimizer.core.traffic.DataSaverPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -46,7 +47,10 @@ object ShizukuManager {
         )
         method.isAccessible = true
         method.invoke(null, cmd, null, null) as? Process
-    } catch (_: Exception) { null }
+    } catch (error: Exception) {
+        Log.w("NetOptShizuku", "Command creation failed: ${error.javaClass.simpleName}")
+        null
+    }
 
     private fun runCommand(vararg cmd: String): Boolean {
         val process = newProcess(*cmd) ?: return false
@@ -60,10 +64,16 @@ object ShizukuManager {
     private fun readGlobalDataSaver(): Boolean? {
         val process = newProcess("cmd", "netpolicy", "get", "restrict-background") ?: return null
         return try {
-            if (!process.waitFor(6, TimeUnit.SECONDS) || process.exitValue() != 0) null
-            else DataSaverPolicy.parseGlobal(process.inputStream.bufferedReader().use { it.readText() })
-        } catch (_: Exception) { null }
-        finally { try { process.destroy() } catch (_: Exception) { } }
+            if (!process.waitFor(6, TimeUnit.SECONDS) || process.exitValue() != 0) {
+                Log.w("NetOptShizuku", "Status command did not complete successfully")
+                null
+            } else DataSaverPolicy.parseGlobal(process.inputStream.bufferedReader().use { it.readText() }).also {
+                if (it == null) Log.w("NetOptShizuku", "Status command returned an unrecognized response")
+            }
+        } catch (error: Exception) {
+            Log.w("NetOptShizuku", "Status query failed: ${error.javaClass.simpleName}")
+            null
+        } finally { try { process.destroy() } catch (_: Exception) { } }
     }
 
     fun status(): Status = try {
