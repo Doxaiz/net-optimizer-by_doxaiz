@@ -279,9 +279,10 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                                 }
                             }
                         }
+                        if (selectedDns != null) Text("★ Наименьшая медиана в этом замере; DNS не подключён автоматически.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (dnsError) Text("Не удалось выполнить замер DNS.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         if (dnsTried && !benching && dnsList.all { it.ms < 0 } && selectedDns == null) {
-                            Text("Нет результатов. Возможные причины: нет мобильной сети, заряд ниже 20%, UDP/53 заблокирован или сервер недоступен.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Нет результатов или замер отменён. Возможные причины: нет мобильной сети, заряд ниже 20%, UDP/53 заблокирован, сервер недоступен или ответ некорректен.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(8.dp))
                         Button(
