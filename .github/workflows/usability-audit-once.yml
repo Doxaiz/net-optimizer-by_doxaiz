@@ -1,0 +1,107 @@
+name: Audit usability and upgrade on Android
+on:
+  push:
+    branches: [arena/d95398fc-net-optimizer-by-doxaiz]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Verify candidate source and run unit tests and lint
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "28bb3dc5037bbd4df11624282d0a149a7b1aaa97"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/usability-audit-once.yml"
+          gradle --no-daemon --console plain testReleaseUnitTest lintRelease
+      - name: Build release candidate using selected existing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/audit-signing.jks"
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          git show cdee2c69a77361c141d2da1e902f2ed171a83fa8:doxaiz-release.jks > "$ANDROID_KEYSTORE_PATH"
+          python3 - <<'PY'
+          import os, re, subprocess
+          source = subprocess.check_output(['git', 'show', 'cdee2c69a77361c141d2da1e902f2ed171a83fa8:app/build.gradle.kts'], text=True)
+          for key, env in [('storePassword', 'ANDROID_KEYSTORE_PASSWORD'), ('keyAlias', 'ANDROID_KEY_ALIAS'), ('keyPassword', 'ANDROID_KEY_PASSWORD')]:
+              match = re.search(r'^\s*' + key + r'\s*=\s*"([^"\r\n]+)"\s*$', source, re.MULTILINE)
+              if not match:
+                  raise SystemExit('Existing signing configuration unavailable')
+              value = match.group(1)
+              print('::add-mask::' + value, flush=True)
+              os.environ[env] = value
+          os.execvp('gradle', ['gradle', '--no-daemon', '--console', 'plain', 'assembleRelease'])
+          PY
+      - name: Check APK signature and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          tools=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1 | xargs dirname)
+          "$tools/apksigner" verify --verbose --print-certs "$apk"
+          badging=$("$tools/aapt" dump badging "$apk" | sed -n '1p')
+          [[ "$badging" == *"name='com.doxaiz.netoptimizer'"* && "$badging" == *"versionCode='13'"* && "$badging" == *"versionName='1.0.0'"* ]]
+          unzip -t "$apk" > /dev/null
+          sha256sum "$apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-ui-candidate
+          path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 2
+          if-no-files-found: error
+  emulator:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [31, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-ui-candidate
+          path: candidate
+      - name: Download the two actual previous APKs and verify hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p published previous
+          gh release download v1.0.0 --repo "$GITHUB_REPOSITORY" --pattern app-release.apk --dir published || { echo '::error::Could not download published 1.0.0'; exit 1; }
+          echo '0580f8c009eae5e4cb9d9f5011d8efda607a48b48eef5e5fd5c838466aba5ea6  published/app-release.apk' | sha256sum -c -
+          gh run download 44242349092 --repo "$GITHUB_REPOSITORY" --name NetOptimizer-by-Doxaiz-release --dir previous || { echo '::error::Could not download original 1.1.1 build artifact'; exit 1; }
+          echo '3fca3d5b6a0f8d55ce1016a1efb40b680eab6df322ffa964c984d4412e94dffa  previous/app-release.apk' | sha256sum -c -
+      - name: Enable KVM
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm || { echo '::error::KVM is unavailable on this runner'; exit 1; }
+      - name: Test upgrade, action feedback, launch and tabs
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        env:
+          AUDIT_DISPOSABLE_EMULATOR: 'yes'
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: python3 scripts/check-usability-emulator.py candidate/app-release.apk published/app-release.apk previous/app-release.apk
