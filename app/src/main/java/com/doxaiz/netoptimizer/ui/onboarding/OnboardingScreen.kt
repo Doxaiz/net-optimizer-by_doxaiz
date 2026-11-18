@@ -1,201 +1,197 @@
 package com.doxaiz.netoptimizer.ui.onboarding
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.location.LocationManager
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
+import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
+import com.doxaiz.netoptimizer.core.util.InterfaceMode
 import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.ui.home.WorkMode
-import com.doxaiz.netoptimizer.ui.theme.AccentCyan
-import com.doxaiz.netoptimizer.ui.theme.AccentGreen
+import rikka.shizuku.Shizuku
 
-/**
- * Быстрый старт при первом запуске (1 экран, без скучных слайдов):
- * разрешения с человеческим объяснением + выбор стартового режима.
- */
+/** One scrollable setup screen; every access is optional and can be changed later. */
 @Composable
 fun OnboardingScreen(onDone: () -> Unit) {
     val context = LocalContext.current
-    var mode by remember { mutableStateOf(WorkMode.NORMAL) }
-    var permCell by remember { mutableStateOf(hasPerm(context, Manifest.permission.ACCESS_FINE_LOCATION)) }
-    var permPhone by remember { mutableStateOf(hasPerm(context, Manifest.permission.READ_PHONE_STATE)) }
-    var permNotif by remember { mutableStateOf(hasPerm(context, Manifest.permission.POST_NOTIFICATIONS)) }
-    var permUsage by remember { mutableStateOf(hasUsageAccess(context)) }
+    val traffic = remember { TrafficMonitor(context.applicationContext) }
+    var interfaceMode by rememberSaveable { mutableStateOf(OnboardingPrefs.loadInterfaceMode(context) ?: InterfaceMode.SIMPLE) }
+    var cellAccess by remember { mutableStateOf(hasLocation(context)) }
+    var locationEnabled by remember { mutableStateOf(isLocationEnabled(context)) }
+    var usageAccess by remember { mutableStateOf(traffic.hasUsageAccess()) }
+    var batteryExempt by remember { mutableStateOf(isBatteryExempt(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
-        permCell = result[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        permPhone = result[Manifest.permission.READ_PHONE_STATE] == true
-        permNotif = result[Manifest.permission.POST_NOTIFICATIONS] == true
+    fun refresh() {
+        cellAccess = hasLocation(context)
+        locationEnabled = isLocationEnabled(context)
+        usageAccess = traffic.hasUsageAccess()
+        batteryExempt = isBatteryExempt(context)
+        shizukuStatus = ShizukuManager.status()
+    }
+    DisposableEffect(lifecycle, traffic) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh() }
+        val received = Shizuku.OnBinderReceivedListener { shizukuStatus = ShizukuManager.status() }
+        val dead = Shizuku.OnBinderDeadListener { shizukuStatus = ShizukuManager.status() }
+        val permission = Shizuku.OnRequestPermissionResultListener { code, _ ->
+            if (code == 1001) shizukuStatus = ShizukuManager.status()
+        }
+        lifecycle.addObserver(observer)
+        try { Shizuku.addBinderReceivedListener(received) } catch (_: Exception) { }
+        try { Shizuku.addBinderDeadListener(dead) } catch (_: Exception) { }
+        try { Shizuku.addRequestPermissionResultListener(permission) } catch (_: Exception) { }
+        onDispose {
+            lifecycle.removeObserver(observer)
+            try { Shizuku.removeBinderReceivedListener(received) } catch (_: Exception) { }
+            try { Shizuku.removeBinderDeadListener(dead) } catch (_: Exception) { }
+            try { Shizuku.removeRequestPermissionResultListener(permission) } catch (_: Exception) { }
+        }
+    }
+    val locationRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        cellAccess = hasLocation(context)
+        if (!cellAccess) message = "Точный доступ не предоставлен. Его можно включить позже в настройках приложения."
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Spacer(Modifier.height(24.dp))
-            Text("◈", style = MaterialTheme.typography.displayLarge, color = AccentCyan)
-            Text("Net Optimizer", style = MaterialTheme.typography.headlineMedium)
-            Text("by Doxaiz", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Бесплатно · Без регистрации · Всё локально на устройстве\nУлучшение 4G/5G, скорости и пинга — честно и без «волшебных кнопок»",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Разрешения (можно позже)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    PermissionRow(
-                        title = "Состояние сотовой сети",
-                        sub = "Сигнал 4G/5G, частота Band, оператор",
-                        granted = permCell && permPhone,
-                        onRequest = { launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_PHONE_STATE)) }
-                    )
-                    PermissionRow(
-                        title = "Статистика трафика",
-                        sub = "Какие приложения едят интернет",
-                        granted = permUsage,
-                        onRequest = { openUsageAccess(context) }
-                    )
-                    PermissionRow(
-                        title = "Уведомления",
-                        sub = "Тихая строка скорости в шторке (без звука)",
-                        granted = permNotif,
-                        onRequest = {
-                            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                                launcher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
-                            } else {
-                                permNotif = true
-                            }
-                        }
-                    )
-                    PermissionRow(
-                        title = "Работа в фоне без ограничений",
-                        sub = "Чтобы система не выключала оптимизацию",
-                        granted = false,
-                        onRequest = { requestIgnoreBattery(context) }
-                    )
-                    PermissionRow(
-                        title = "Shizuku (супер-фичи, необязательно)",
-                        sub = when (shizukuStatus) {
-                            ShizukuManager.Status.READY -> "✅ Готов: режим сети и стоп приложений работают автоматически"
-                            ShizukuManager.Status.NO_PERMISSION -> "Shizuku запущен — нажмите «Разрешить»"
-                            ShizukuManager.Status.NOT_RUNNING -> "Установите и запустите Shizuku"
-                            ShizukuManager.Status.NOT_INSTALLED -> "Не установлен. Без него основная оптимизация всё равно работает"
-                        },
-                        granted = shizukuStatus == ShizukuManager.Status.READY,
-                        onRequest = {
-                            when (shizukuStatus) {
-                                ShizukuManager.Status.NOT_INSTALLED, ShizukuManager.Status.NOT_RUNNING -> ShizukuManager.openShizukuStore(context)
-                                ShizukuManager.Status.NO_PERMISSION -> ShizukuManager.requestPermission()
-                                ShizukuManager.Status.READY -> { }
-                            }
-                        }
-                    )
-                }
+    Scaffold(bottomBar = {
+        Surface(shadowElevation = 4.dp) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Button(onClick = {
+                    OnboardingPrefs.saveInterfaceMode(context, interfaceMode)
+                    if (OnboardingPrefs.loadMode(context) == null) OnboardingPrefs.saveMode(context, WorkMode.NORMAL.name)
+                    OnboardingPrefs.setDone(context)
+                    onDone()
+                }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Продолжить") }
+                Text("Можно пропустить и настроить позже.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("Стартовый режим", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        WorkMode.entries.forEach { m ->
-                            FilterChip(
-                                selected = mode == m,
-                                onClick = { mode = m },
-                                label = { Text(m.label) },
-                                modifier = Modifier.weight(1f)
-                            )
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 20.dp)) {
+            item {
+                Text("NET OPTIMIZER", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text("Подготовим приложение", style = MaterialTheme.typography.headlineSmall)
+                Text("Выберите вид. Доступы можно включить сейчас или позже.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Как вам удобнее?", style = MaterialTheme.typography.titleMedium)
+                        ModeChoice("Обычный", "Основные действия и понятные результаты.", interfaceMode == InterfaceMode.SIMPLE) { interfaceMode = InterfaceMode.SIMPLE }
+                        ModeChoice("Эксперт", "Все показатели и инструменты.", interfaceMode == InterfaceMode.EXPERT) { interfaceMode = InterfaceMode.EXPERT }
+                        Text("Режим можно изменить в настройках.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Для основных возможностей", style = MaterialTheme.typography.titleMedium)
+                        SetupItem("Сигнал и сота", if (cellAccess) "Доступ к точному местоположению включён." else "Для сведений о соте нужно точное местоположение. Координаты не сохраняются.", cellAccess) {
+                            locationRequest.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+                        }
+                        if (!cellAccess) TextButton(onClick = { if (!openAppDetails(context)) message = "Откройте настройки приложения в Android вручную." }) { Text("Открыть разрешения приложения") }
+                        if (locationEnabled == false) {
+                            Text("Для данных о соте может понадобиться включить местоположение телефона.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick = { if (!open(context, Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))) message = "Откройте настройки местоположения Android вручную." }) { Text("Настройки местоположения") }
+                        }
+                        HorizontalDivider()
+                        SetupItem("Трафик приложений", if (usageAccess) "Доступ к статистике включён." else "Нужен доступ к истории использования, чтобы увидеть расход по приложениям.", usageAccess) {
+                            if (!traffic.openUsageAccess()) message = "Откройте доступ к истории использования в настройках Android вручную."
                         }
                     }
                 }
             }
-        }
-        item {
-            Button(
-                onClick = {
-                    OnboardingPrefs.saveMode(context, mode.name)
-                    OnboardingPrefs.setDone(context)
-                    onDone()
-                },
-                modifier = Modifier.fillMaxWidth().height(54.dp)
-            ) { Text("🚀 Запустить Doxaiz") }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Open Source · 0% рекламы · Данные только на телефоне",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Дополнительно", style = MaterialTheme.typography.titleMedium)
+                        val ready = shizukuStatus == ShizukuManager.Status.READY
+                        SetupItem("Shizuku · не обязательно", when (shizukuStatus) {
+                            ShizukuManager.Status.READY -> "Подключён. Остановка приложений — только с подтверждением."
+                            ShizukuManager.Status.NO_PERMISSION -> "Запущен. Можно разрешить дополнительный доступ."
+                            else -> "Для остановки выбранных приложений. Установите и запустите Shizuku по его инструкции, затем вернитесь сюда. Без него доступны системные настройки."
+                        }, ready, if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) "Разрешить" else "Установить или открыть") {
+                            if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) ShizukuManager.requestPermission(1001)
+                            else if (!ShizukuManager.openAppOrStore(context)) message = "Не удалось открыть Shizuku. Найдите его в магазине приложений или на GitHub."
+                        }
+                        HorizontalDivider()
+                        Text("Работа в фоне: пока недоступна", style = MaterialTheme.typography.titleSmall)
+                        Text("Замеры работают на экране. Исключение из оптимизации батареи не включает фоновую работу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (batteryExempt) "Android: ограничение батареи снято." else "Android: ограничение батареи не снято (не обязательно).", style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = { if (!requestIgnoreBattery(context)) message = "Откройте настройки батареи приложения вручную." }) { Text("Настройки батареи") }
+                    }
+                }
+            }
+            item {
+                message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                Text("История хранится на телефоне. Замеры используют сторонние серверы и мобильный трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
 
 @Composable
-private fun PermissionRow(title: String, sub: String, granted: Boolean, onRequest: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+private fun ModeChoice(title: String, description: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(Modifier.fillMaxWidth().selectable(selected = selected, onClick = onSelect, role = androidx.compose.ui.semantics.Role.RadioButton), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        RadioButton(selected = selected, onClick = null)
         Column(Modifier.weight(1f)) {
-            Text(title)
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (granted) {
-            Text("✅", color = AccentGreen)
-        } else {
-            OutlinedButton(onClick = onRequest) { Text("Разрешить") }
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-private fun hasPerm(context: android.content.Context, perm: String): Boolean =
-    ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-
-private fun hasUsageAccess(context: android.content.Context): Boolean {
-    val appOps = context.getSystemService(android.content.Context.APP_OPS_SERVICE) as android.app.AppOpsManager
-    return try {
-        appOps.checkOpNoThrow(
-            "android:get_package_usage_stats",
-            android.os.Process.myUid(), context.packageName
-        ) == android.app.AppOpsManager.MODE_ALLOWED
-    } catch (_: Exception) { false }
-}
-
-private fun openUsageAccess(context: android.content.Context) {
-    try {
-        context.startActivity(
-            android.content.Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-        )
-    } catch (_: Exception) { }
-}
-
-private fun requestIgnoreBattery(context: android.content.Context) {
-    try {
-        val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = android.net.Uri.parse("package:${context.packageName}")
-            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        // На некоторых прошивках диалог недоступен — просто пропускаем
+@Composable
+private fun SetupItem(title: String, description: String, ready: Boolean, action: String = "Настроить", onClick: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(if (ready) "$title · готово" else "$title · по желанию", style = MaterialTheme.typography.titleSmall,
+            color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!ready) OutlinedButton(onClick = onClick) { Text(action) }
     }
 }
+
+private fun hasLocation(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+private fun isLocationEnabled(context: Context): Boolean? = try {
+    context.getSystemService(LocationManager::class.java)?.isLocationEnabled
+} catch (_: Exception) { null }
+
+private fun openAppDetails(context: Context): Boolean = open(context, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+    data = Uri.parse("package:${context.packageName}")
+})
+
+private fun requestIgnoreBattery(context: Context): Boolean = open(context, Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+    data = Uri.parse("package:${context.packageName}")
+})
+
+private fun open(context: Context, intent: Intent): Boolean = try {
+    context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true
+} catch (_: Exception) { false }
+
+private fun isBatteryExempt(context: Context): Boolean = try {
+    context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
+} catch (_: Exception) { false }

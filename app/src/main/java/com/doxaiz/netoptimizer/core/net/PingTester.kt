@@ -5,19 +5,24 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.net.Socket
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /** Цель для пинг-теста: игра, сервис или свой IP/домен */
 data class PingTarget(val name: String, val host: String, val port: Int, val hint: String)
 
+enum class PingStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, RESOLUTION_FAILED, LOW_BATTERY }
+
 data class PingResult(
     val target: PingTarget,
     val avgMs: Int,
-    val jitterMs: Int,
-    val lossPercent: Int,
-    val ok: Boolean
+    val jitterMs: Int, // -1: fewer than two successful connections
+    val lossPercent: Int, // failed TCP attempts, -1 when no measurement was made
+    val ok: Boolean,
+    val attemptsMade: Int,
+    val successfulAttempts: Int,
+    val status: PingStatus
 )
 
 object PingCatalog {
@@ -27,9 +32,9 @@ object PingCatalog {
         PingTarget("Mobile Legends", "m.mobilelegends.com", 443, "мобильная игра"),
         PingTarget("Brawl Stars", "supercell.com", 443, "мобильная игра"),
         PingTarget("Counter-Strike 2", "store.steampowered.com", 443, "ПК-игра · для USB-модема"),
-        PingTarget("Dota 2", "store.steampowered.com", 443, "ПК-игра · EU East"),
-        PingTarget("Valorant", "playvalorant.com", 443, "ПК-игра · Frankfurt"),
-        PingTarget("Мир Танков", "worldoftanks.ru", 443, "ПК-игра · RU"),
+        PingTarget("Dota 2", "store.steampowered.com", 443, "сайт Steam"),
+        PingTarget("Valorant", "playvalorant.com", 443, "сайт игры"),
+        PingTarget("Мир Танков", "worldoftanks.ru", 443, "сайт игры"),
         PingTarget("Telegram", "telegram.org", 443, "мессенджер"),
         PingTarget("Яндекс", "yandex.ru", 443, "сервис РФ")
     )
@@ -39,23 +44,39 @@ object PingCatalog {
  * TCP-пинг: меряет время установки соединения (без root ICMP недоступен).
  * Считает средний пинг, джиттер и потери (неудачные попытки).
  */
-class PingTester {
+class PingTester(private val context: android.content.Context) {
 
-    suspend fun test(target: PingTarget, attempts: Int = 6): PingResult =
+    suspend fun test(
+        target: PingTarget,
+        attempts: Int = 6,
+        onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> }
+    ): PingResult =
         withContext(Dispatchers.IO) {
-            val times = mutableListOf<Int>()
-            var failed = 0
-            repeat(attempts) {
-                val t = connectOnce(target.host, target.port)
-                if (t >= 0) times += t else failed++
+            require(attempts > 0) { "attempts must be positive" }
+            val network = CellularNetwork.active(context)
+                ?: return@withContext result(target, emptyList(), PingStatus.NO_CELLULAR)
+            if (!CellularNetwork.batteryOk(context)) return@withContext result(target, emptyList(), PingStatus.LOW_BATTERY)
+            val address = try { network.getAllByName(target.host).firstOrNull() } catch (_: Exception) { null }
+            currentCoroutineContext().ensureActive()
+            if (CellularNetwork.active(context) != network) {
+                return@withContext result(target, emptyList(), PingStatus.NETWORK_CHANGED)
             }
-            val avg = if (times.isEmpty()) -1 else times.average().roundToInt()
-            val jitter = if (times.size < 2) 0 else {
-                val diffs = times.zipWithNext { a, b -> abs(a - b) }
-                diffs.average().roundToInt()
+            if (address == null) return@withContext result(target, emptyList(), PingStatus.RESOLUTION_FAILED)
+            var interrupted: PingStatus? = null
+            val samples = TcpProbeSequence.run(attempts, beforeAttempt = {
+                when {
+                    CellularNetwork.active(context) != network -> { interrupted = PingStatus.NETWORK_CHANGED; false }
+                    !CellularNetwork.batteryOk(context) -> { interrupted = PingStatus.LOW_BATTERY; false }
+                    else -> true
+                }
+            }, connect = { connectOnce(network, address, target.port) }, onProgress = onProgress)
+            interrupted?.let { return@withContext result(target, samples, it) }
+            val status = when {
+                CellularNetwork.active(context) != network -> PingStatus.NETWORK_CHANGED
+                !CellularNetwork.batteryOk(context) -> PingStatus.LOW_BATTERY
+                else -> PingStatus.COMPLETED
             }
-            val loss = (failed * 100 / attempts)
-            PingResult(target, avg, jitter, loss, avg in 1..150 && loss == 0)
+            result(target, samples, status)
         }
 
     /** Параллельный тест всех целей (быстро даже на плохой сети) */
@@ -65,11 +86,23 @@ class PingTester {
         }.awaitAll().toMap()
     }
 
-    private fun connectOnce(host: String, port: Int): Int {
+    private fun result(target: PingTarget, samples: List<Int>, status: PingStatus): PingResult {
+        val summary = TcpProbeSummary.from(samples)
+        // Measurements from interrupted network transitions must not be presented as a complete test.
+        return PingResult(target,
+            if (status == PingStatus.COMPLETED) summary.averageMs else -1,
+            if (status == PingStatus.COMPLETED) summary.jitterMs else -1,
+            if (status == PingStatus.COMPLETED) summary.failedPercent else -1,
+            status == PingStatus.COMPLETED && summary.averageMs in 0..150 && summary.failedPercent == 0,
+            summary.attempts, summary.successes, status)
+    }
+
+    private fun connectOnce(network: android.net.Network, address: java.net.InetAddress, port: Int): Int {
         val socket = Socket()
         return try {
+            network.bindSocket(socket)
             val start = System.nanoTime()
-            socket.connect(java.net.InetSocketAddress(host, port), 2500)
+            socket.connect(java.net.InetSocketAddress(address, port), 2500)
             ((System.nanoTime() - start) / 1_000_000).toInt()
         } catch (_: Exception) {
             -1

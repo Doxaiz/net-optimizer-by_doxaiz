@@ -6,15 +6,7 @@ import android.os.IBinder
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import rikka.shizuku.Shizuku
 
-/**
- * Режим сети: авто / только LTE / только NR / NR-LTE.
- * Числа — RIL-константы (те же, что использует setPreferredNetworkTypeForUser):
- * 10 = LTE/CDMA/EVDO/GSM/WCDMA (авто), 11 = только LTE, 23 = только NR, 24 = NR+LTE.
- *
- * Настройка сохраняется и переживает перезагрузку:
- * - со Shizuku режим применяется автоматически (включая после ребута);
- * - без Shizuku приложение напоминает открыть RadioInfo и выставить вручную.
- */
+/** Сохранённые предпочтения не применяются автоматически: проверка VoLTE не реализована. */
 enum class NetworkMode(val label: String, val typeValue: Int) {
     AUTO("Авто (4G/5G)", 10),
     LTE_ONLY("Только 4G (LTE)", 11),
@@ -69,24 +61,8 @@ object NetworkModeApplier {
         }
     }
 
-    fun apply(mode: NetworkMode): Boolean {
-        if (!isShizukuReady()) return false
-        return try {
-            val binder = phoneBinder() ?: return false
-            val stubClass = Class.forName("com.android.internal.telephony.ITelephony\$Stub")
-            val asInterface = stubClass.getMethod("asInterface", IBinder::class.java)
-            val telephony = asInterface.invoke(null, binder) ?: return false
-            val setMethod = telephony.javaClass.getMethod(
-                "setPreferredNetworkTypeForUser",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            )
-            val result = setMethod.invoke(telephony, mode.typeValue, 0)
-            result as? Boolean ?: false
-        } catch (_: Exception) {
-            false
-        }
-    }
+    /** Fail closed until VoLTE, emergency-call and device compatibility checks exist. */
+    fun apply(mode: NetworkMode): Boolean = false
 
     /** Текущий режим сети (через Shizuku). -1, если недоступно. */
     fun currentType(): Int {

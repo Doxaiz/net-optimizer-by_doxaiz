@@ -1,0 +1,25 @@
+# Local build outputs and machine-specific Android configuration
+.gradle/
+build/
+**/build/
+local.properties
+.idea/
+*.iml
+*.apk
+*.aab
+# Credentials, private keys and generated diagnostics must never be committed.
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.pk8
+*.key
+.env
+.env.*
+!.env.example
+keystore.properties
+signing.properties
+*.log
+__pycache__/
+*.py[cod]

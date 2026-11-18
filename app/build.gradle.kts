@@ -13,20 +13,19 @@ android {
         applicationId = "com.doxaiz.netoptimizer"
         minSdk = 31
         targetSdk = 34
-        versionCode = 11
-        versionName = "1.1.1"
+        // Android forbids upgrading from the old public build (versionCode 11) to a lower code.
+        // The user-facing release numbering can restart independently of this monotonic value.
+        versionCode = 13
+        versionName = "1.0.0"
     }
 
     signingConfigs {
         create("release") {
-            val ks = rootProject.file("doxaiz-release.jks")
-            if (ks.exists()) {
-                storeFile = ks
-                storePassword = "doxaiz2026"
-                keyAlias = "doxaiz"
-                keyPassword = "doxaiz2026"
-                storeType = "jks"
-            }
+            // Release keys and passwords must be supplied outside the repository.
+            System.getenv("ANDROID_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }?.let { storeFile = file(it) }
+            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
         }
     }
 
@@ -35,9 +34,7 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             isDebuggable = false
-            if (rootProject.file("doxaiz-release.jks").exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -67,5 +64,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    testImplementation("junit:junit:4.13.2")
     debugImplementation(libs.compose.ui.tooling)
 }

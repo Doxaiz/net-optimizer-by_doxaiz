@@ -1,0 +1,20 @@
+name: Repository safety checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  current-tree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test and check current files
+        run: |
+          python3 -m unittest discover -s scripts/tests -v
+          python3 scripts/check-sensitive-files.py

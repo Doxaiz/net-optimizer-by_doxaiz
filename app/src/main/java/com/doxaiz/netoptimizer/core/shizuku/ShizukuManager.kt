@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 
@@ -81,6 +80,18 @@ object ShizukuManager {
         }
     }
 
+    /** Open the installed app if possible, otherwise its official store or GitHub page. */
+    fun openAppOrStore(context: Context): Boolean {
+        val installed = try { context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api") } catch (_: Exception) { null }
+        val intents = listOfNotNull(installed,
+            Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=moe.shizuku.privileged.api")),
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/RikkaApps/Shizuku")))
+        for (intent in intents) {
+            try { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true } catch (_: Exception) { }
+        }
+        return false
+    }
+
     /** Запросить разрешение Shizuku (нужен запущенный Shizuku) */
     fun requestPermission(requestCode: Int = 1001) {
         try {
@@ -106,24 +117,9 @@ object ShizukuManager {
         runCommand("am", "force-stop", packageName)
     }
 
-    /**
-     * Перерегистрация на ближнюю соту: переключение мобильных данных через Shizuku.
-     * Wi-Fi не трогаем — иначе прервётся связь при USB-модеме.
-     */
-    suspend fun resetCell(): Boolean = withContext(Dispatchers.IO) {
-        if (!isReady()) return@withContext false
-        runCommand("svc", "data", "disable")
-        delay(1500)
-        runCommand("svc", "data", "enable")
-        true
-    }
+    /** Disabled: toggling mobile data does not guarantee a different cell and can break tethering. */
+    suspend fun resetCell(): Boolean = false
 
-    /** Применить сохранённый режим сети (при получении разрешения Shizuku) */
-    fun applySavedNetworkMode(context: Context) {
-        if (!isReady()) return
-        try {
-            val mode = com.doxaiz.netoptimizer.core.cellular.NetworkModePrefs.load(context)
-            com.doxaiz.netoptimizer.core.cellular.NetworkModeApplier.apply(mode)
-        } catch (_: Exception) { }
-    }
+    /** Disabled: never apply saved network modes without an explicit, verified safe action. */
+    fun applySavedNetworkMode(context: Context) = Unit
 }
