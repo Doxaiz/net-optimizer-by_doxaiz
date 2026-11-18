@@ -225,12 +225,14 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
         item {
             Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
-            Spacer(Modifier.height(8.dp))
+        }
+        item { LoadOptimizationCard(optimizer, details) }
+        item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("Текущая скорость телефона", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (rate != null) "↓ ${formatRate(rate!!.rxBytesPerSecond)}  ·  ↑ ${formatRate(rate!!.txBytesPerSecond)}" else "Нет данных", style = MaterialTheme.typography.titleMedium, color = if (rate != null) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Общие счётчики мобильных интерфейсов Android, не скорость отдельных приложений. Первое значение появляется после двух снимков; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (details) "Общие счётчики мобильных интерфейсов Android, не скорость отдельных приложений. Первое значение появляется после двух снимков; раздача может учитываться по-разному." else "Общий мобильный трафик телефона, не отдельных приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (details && history.size >= 2) {
                         TrafficGraph(history)
                         Text("Приём — голубой · отдача — фиолетовый; последние до 30 снимков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -238,7 +240,6 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                 }
             }
         }
-        item { LoadOptimizationCard(optimizer, details) }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -248,7 +249,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                             FilterChip(selected = period == choice, onClick = { period = choice }, label = { Text(choice.label) })
                         }
                     }
-                    Text("7 дней включают сегодня; месяц считается с первого числа. Данные относятся только к мобильным сетям и могут обновляться с задержкой. Это не текущая скорость и не счёт оператора.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (details) "7 дней включают сегодня; месяц считается с первого числа. Данные относятся только к мобильным сетям и могут обновляться с задержкой. Это не текущая скорость и не счёт оператора." else "Расход за период; Android может показывать данные с задержкой.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (!loading && summary?.status == TrafficSummaryStatus.READY) {
                         summary?.window?.let { Text("Период: ${formatWindow(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         val apps = summary?.apps.orEmpty()
@@ -336,33 +337,45 @@ private fun LoadOptimizationCard(controller: LoadOptimizationController, details
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("СНИЗИТЬ НАГРУЗКУ НА СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text(if (details) "1. Измерьте задержку. 2. Поставьте ненужные загрузки на паузу или остановите выбранное приложение ниже. При USB-модеме проверьте загрузки и на ПК. 3. Измерьте снова." else "1. Начните сравнение. 2. Поставьте ненужные загрузки на паузу. 3. Измерьте ещё раз. Остановку приложений можно найти в дополнительных действиях выше.", style = MaterialTheme.typography.bodySmall)
-            Text("Уменьшение конкурирующего трафика может освободить канал и снизить задержку, но не меняет настройки сети и не гарантирует улучшения. Расход за период ниже не показывает, что приложение использует сеть прямо сейчас.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (details) Text("Для сравнения скорости отдельно запустите два спидтеста в Инструменты → Замеры, до и после паузы загрузок. Каждый тест расходует до 15 МБ плюс служебный трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(when (state.phase) {
+                LoadPhase.IDLE -> "Шаг 1: измерьте задержку до изменений."
+                LoadPhase.BASELINE -> "Измеряем задержку до изменений…"
+                LoadPhase.READY -> "Шаг 2: приостановите ненужные загрузки, затем измерьте снова."
+                LoadPhase.CHECKING -> "Измеряем задержку после изменений…"
+                LoadPhase.RESULT -> "Сравнение готово"
+            }, style = MaterialTheme.typography.titleSmall)
             state.before?.let { Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium) }
             state.after?.let { after ->
                 Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)
                 state.before?.let { before ->
                     LoadComparison.delta(before, after)?.let { delta ->
                         val text = when {
-                            delta < 0 -> "Средняя TCP-задержка ниже на ${-delta} мс."
-                            delta > 0 -> "Средняя TCP-задержка выше на $delta мс."
-                            else -> "Средняя TCP-задержка не изменилась."
+                            delta < 0 -> "Задержка ниже на ${-delta} мс"
+                            delta > 0 -> "Задержка выше на $delta мс"
+                            else -> "Задержка не изменилась"
                         }
-                        Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(text, style = MaterialTheme.typography.titleMedium, color = when {
+                            delta < 0 -> AccentGreen
+                            delta > 0 -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        })
                     }
                 }
-                Text("Это разница двух замеров, а не доказательство причины: нагрузка, маршрут и сота могли измениться.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Это разница двух замеров, причина изменения неизвестна.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.message.isNotEmpty() && (details || state.phase == LoadPhase.IDLE || state.phase == LoadPhase.READY))
+                Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             when (state.phase) {
                 LoadPhase.IDLE -> Button(onClick = controller::start, modifier = Modifier.fillMaxWidth()) { Text("Начать сравнение") }
                 LoadPhase.BASELINE, LoadPhase.CHECKING -> LinearProgressIndicator(Modifier.fillMaxWidth())
                 LoadPhase.READY, LoadPhase.RESULT -> Button(onClick = controller::measureAfter, modifier = Modifier.fillMaxWidth()) { Text("Измерить после изменений") }
             }
-            if (state.phase != LoadPhase.IDLE) TextButton(onClick = { controller.clear() }) { Text("Начать заново") }
-            Text("Каждый замер — 6 TCP-подключений к одному IP сайта Яндекса; нужно минимум 4 успешных. Это не пинг игрового сервера и не проверка скорости. Действия с приложениями выполняются только с вашего подтверждения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("При сворачивании замер отменяется. Сравнение хранится только на этом экране до 10 минут; при смене мобильной сети оно сбрасывается. Между замерами Android отслеживает смену сети без отправки проб.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.phase != LoadPhase.IDLE) TextButton(onClick = { controller.clear() }) { Text(if (state.phase == LoadPhase.BASELINE || state.phase == LoadPhase.CHECKING) "Отменить" else "Начать заново") }
+            Text("Проверяется задержка до сайта Яндекса, не скорость и не пинг игры. Улучшение не гарантировано.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (details) {
+                Text("Шесть TCP-подключений к одному IP; требуется минимум четыре ответа. При USB-модеме проверьте загрузки на ПК. Остановка приложений доступна ниже после подтверждения и влияет на всё приложение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Для сравнения скорости используйте два спидтеста в Инструменты → Замеры (до 15 МБ каждый). При сворачивании замер отменяется; сравнение хранится до 10 минут и сбрасывается при смене сети.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

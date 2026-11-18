@@ -115,6 +115,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     var previousSpeed by remember { mutableStateOf<SpeedResult?>(null) }
     var speedTesting by remember { mutableStateOf(false) }
     var speedError by remember { mutableStateOf(false) }
+    var speedCancelled by remember { mutableStateOf(false) }
     var speedJob by remember { mutableStateOf<Job?>(null) }
 
     val bench = remember { DnsBenchmark(context) }
@@ -376,8 +377,41 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                             Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (speedError) Text("Не удалось выполнить тест. Попробуйте позже.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                        Text("Сервер Cloudflare: до 10 МБ скачивания и 5 МБ отдачи плюс служебный трафик. Тест расходует мобильный интернет; соединение и ответ сервера входят во время замера. При сворачивании тест отменяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        speed?.downloadLatency?.let { latency ->
+                        Text(if (details) "Сервер Cloudflare: до 10 МБ скачивания и 5 МБ отдачи плюс служебный трафик. Тест расходует мобильный интернет; соединение и ответ сервера входят во время замера. При сворачивании тест отменяется." else "До 15 МБ данных плюс служебный трафик. Тест останавливается при сворачивании.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                speedTesting = true
+                                speed?.takeIf { result ->
+                                    result.status == SpeedStatus.COMPLETED &&
+                                        listOf(result.downloadMbps, result.uploadMbps).any { it != null && it.isFinite() && it > 0.0 }
+                                }?.let { previousSpeed = it }
+                                speed = null
+                                speedError = false
+                                speedCancelled = false
+                                speedJob = scope.launch {
+                                    try {
+                                        speed = speedTester.test()
+                                    } catch (e: CancellationException) {
+                                        speedCancelled = true
+                                        throw e
+                                    } catch (_: Exception) {
+                                        speedError = true
+                                    } finally {
+                                        speedTesting = false
+                                    }
+                                }
+                            },
+                            enabled = !speedTesting,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(if (speedTesting) "⏳ Тестирую…" else "▶ Запустить спидтест") }
+                        if (speedTesting) {
+                            Text("Выполняем замер…", style = MaterialTheme.typography.bodySmall)
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            TextButton(onClick = { speedJob?.cancel() }) { Text("Остановить спидтест") }
+                        }
+                        if (speedCancelled && !speedTesting) Text("Спидтест остановлен.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (details) speed?.downloadLatency?.let { latency ->
                             Spacer(Modifier.height(8.dp))
                             Text("ЗАДЕРЖКА ПРИ СКАЧИВАНИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             val delta = latency.differenceMs
@@ -395,38 +429,13 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                                 Text("Недостаточно успешных замеров: до ${latency.idleSuccesses}, при скачивании ${latency.loadedSuccesses}; нужно не менее 3 в каждом режиме.", style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                        Text("Сравниваем время установления TCP-соединения с 1.1.1.1:443 до и во время чтения данных с Cloudflare. Это не ICMP-пинг и лишь ориентир на возможный буферблат: загрузка может не насытить канал, другие приложения и маршруты влияют на результат. Отдача под нагрузкой не проверяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        speed?.let { result -> SpeedHints(result) }
+                        if (details) Text("Сравниваем время установления TCP-соединения с 1.1.1.1:443 до и во время чтения данных с Cloudflare. Это не ICMP-пинг и лишь ориентир на возможный буферблат: загрузка может не насытить канал, другие приложения и маршруты влияют на результат. Отдача под нагрузкой не проверяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (details) speed?.let { result -> SpeedHints(result) }
                         val before = previousSpeed
                         val after = speed
-                        if (before != null && after != null) {
+                        if (details && before != null && after != null) {
                             SpeedComparison(before, after, onClear = { previousSpeed = null })
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = {
-                                speedTesting = true
-                                speed?.takeIf { result ->
-                                    result.status == SpeedStatus.COMPLETED &&
-                                        listOf(result.downloadMbps, result.uploadMbps).any { it != null && it.isFinite() && it > 0.0 }
-                                }?.let { previousSpeed = it }
-                                speed = null
-                                speedError = false
-                                speedJob = scope.launch {
-                                    try {
-                                        speed = speedTester.test()
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (_: Exception) {
-                                        speedError = true
-                                    } finally {
-                                        speedTesting = false
-                                    }
-                                }
-                            },
-                            enabled = !speedTesting,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text(if (speedTesting) "⏳ Тестирую…" else "▶ Запустить спидтест") }
                     }
                 }
             }

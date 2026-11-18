@@ -46,7 +46,11 @@ object PingCatalog {
  */
 class PingTester(private val context: android.content.Context) {
 
-    suspend fun test(target: PingTarget, attempts: Int = 6): PingResult =
+    suspend fun test(
+        target: PingTarget,
+        attempts: Int = 6,
+        onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> }
+    ): PingResult =
         withContext(Dispatchers.IO) {
             require(attempts > 0) { "attempts must be positive" }
             val network = CellularNetwork.active(context)
@@ -66,6 +70,8 @@ class PingTester(private val context: android.content.Context) {
                 }
                 if (!CellularNetwork.batteryOk(context)) return@withContext result(target, samples, PingStatus.LOW_BATTERY)
                 samples += connectOnce(network, address, target.port)
+                currentCoroutineContext().ensureActive()
+                onProgress(samples.size, attempts)
             }
             val status = when {
                 CellularNetwork.active(context) != network -> PingStatus.NETWORK_CHANGED

@@ -10,6 +10,7 @@ import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -42,6 +43,7 @@ fun ConnectionGuide(hasDisplayableSignal: Boolean) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var readiness by remember { mutableStateOf<Readiness?>(null) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -66,7 +68,17 @@ fun ConnectionGuide(hasDisplayableSignal: Boolean) {
             val current = readiness
             if (current == null) {
                 Text("Проверяем настройки телефона…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (!expanded) {
+                val status = when {
+                    !current.mobileSelected -> "Мобильная сеть не найдена для замера."
+                    !current.fineLocation -> "Для сведений о соте нужен доступ к местоположению."
+                    !hasDisplayableSignal -> "Данные о сигнале пока недоступны."
+                    else -> "Мобильная сеть выбрана."
+                }
+                Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { expanded = true }) { Text("Настроить и узнать больше") }
             } else {
+                TextButton(onClick = { expanded = false }) { Text("Скрыть подробности") }
                 Text(if (current.mobileSelected) "Мобильная сеть выбрана Android" else "Мобильная сеть не найдена для замеров", style = MaterialTheme.typography.titleSmall,
                     color = if (current.mobileSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                 Text(if (current.mobileSelected) "Это не подтверждает доступ в интернет. Запустите проверку связи." else "Включите мобильные данные и выберите мобильную сеть для интернета. VPN или другая активная сеть могут помешать замерам; настройки сами не изменяются.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

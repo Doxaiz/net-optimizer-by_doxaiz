@@ -25,6 +25,7 @@ import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
 import com.doxaiz.netoptimizer.core.dns.DnsServer
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
 import android.os.SystemClock
+import com.doxaiz.netoptimizer.core.net.PingResult
 import com.doxaiz.netoptimizer.core.net.PingTarget
 import com.doxaiz.netoptimizer.core.net.PingTester
 import com.doxaiz.netoptimizer.core.util.ConnectionScore
@@ -37,10 +38,14 @@ import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 enum class WorkMode(val label: String, val color: Color) {
     NORMAL("Обычный", AccentCyan), GAME("Игра", AccentViolet), USB("USB-модем", AccentGreen)
 }
+
+private enum class CheckPhase { IDLE, CONNECTING, TCP, DNS, DONE, ERROR, CANCELLED }
 
 @Composable
 fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long, onOptimize: () -> Unit, expert: Boolean) {
@@ -55,8 +60,12 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
     var ping by remember { mutableStateOf<Int?>(null) }
     var jitter by remember { mutableStateOf<Int?>(null) }
     var dns by remember { mutableStateOf<DnsServer?>(null) }
-    var report by remember { mutableStateOf<List<String>>(emptyList()) }
-    var busy by remember { mutableStateOf(false) }
+    var checkPhase by remember { mutableStateOf(CheckPhase.IDLE) }
+    var attemptsDone by remember { mutableIntStateOf(0) }
+    var attemptsTotal by remember { mutableIntStateOf(6) }
+    var checkResult by remember { mutableStateOf<PingResult?>(null) }
+    var errorText by remember { mutableStateOf("") }
+    val busy = checkPhase == CheckPhase.CONNECTING || checkPhase == CheckPhase.TCP || checkPhase == CheckPhase.DNS
     var boostJob by remember { mutableStateOf<Job?>(null) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -76,40 +85,54 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
 
     fun measure() {
         if (busy) return
-        report = emptyList()
-        ping = null; jitter = null; dns = null
+        ping = null; jitter = null; dns = null; checkResult = null; errorText = ""
+        attemptsDone = 0; attemptsTotal = 6
         val network = CellularNetwork.active(context)
         if (network == null) {
-            report = listOf("Активная мобильная сеть не найдена. Подключите мобильный интернет и повторите попытку.")
+            errorText = "Включите мобильный интернет и повторите проверку."
+            checkPhase = CheckPhase.ERROR
             return
         }
-        busy = true
+        checkPhase = CheckPhase.CONNECTING
+        val includeDns = details
         boostJob = scope.launch {
             try {
                 val target = PingTarget("Яндекс", "yandex.ru", 443, "")
-                val result = PingTester(context).test(target)
-                val best = if (details) DnsBenchmark(context).benchmarkAll().firstOrNull { it.ms >= 0 } else null
-                val sameNetwork = CellularNetwork.active(context) == network
-                ping = result.avgMs.takeIf { it >= 0 && sameNetwork }
-                jitter = result.jitterMs.takeIf { ping != null && it >= 0 }
-                dns = best.takeIf { sameNetwork }
-                report = buildList {
-                    add(if (ping != null) "Задержка до сайта Яндекса: $ping мс. В играх результат может отличаться." else "Проверка не удалась. Убедитесь, что мобильный интернет включён и заряд не ниже 20%.")
-                    if (details) add(if (dns != null) "DNS-кандидат по UDP: ${dns!!.name} · ${dns!!.ms} мс. DoT не проверялся; подключение вручную в Инструменты → DNS." else "DNS: результат недоступен или сеть изменилась.")
+                val result = PingTester(context).test(target) { completed, total ->
+                    withContext(Dispatchers.Main) {
+                        attemptsDone = completed
+                        attemptsTotal = total
+                        checkPhase = CheckPhase.TCP
+                    }
                 }
+                val best = if (includeDns && result.avgMs >= 0) {
+                    checkPhase = CheckPhase.DNS
+                    DnsBenchmark(context).benchmarkAll().firstOrNull { it.ms >= 0 }
+                } else null
+                if (CellularNetwork.active(context) != network) {
+                    checkResult = result.copy(status = com.doxaiz.netoptimizer.core.net.PingStatus.NETWORK_CHANGED, avgMs = -1, jitterMs = -1, lossPercent = -1, ok = false)
+                } else {
+                    checkResult = result
+                    ping = result.avgMs.takeIf { it >= 0 }
+                    jitter = result.jitterMs.takeIf { ping != null && it >= 0 }
+                    dns = best
+                }
+                checkPhase = CheckPhase.DONE
             } catch (e: CancellationException) {
+                ping = null; jitter = null; dns = null; checkResult = null
+                checkPhase = CheckPhase.CANCELLED
                 throw e
             } catch (_: Exception) {
-                ping = null; jitter = null; dns = null
-                report = listOf("Не удалось выполнить замер. Попробуйте ещё раз.")
-            } finally { busy = false }
+                ping = null; jitter = null; dns = null; checkResult = null
+                errorText = "Не удалось выполнить замер. Попробуйте ещё раз."
+                checkPhase = CheckPhase.ERROR
+            } finally { boostJob = null }
         }
     }
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        if (!expert) item {
+        item {
             Text("ГЛАВНАЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            TextButton(onClick = { expanded = !expanded }, enabled = !busy) { Text(if (expanded) "Скрыть подробности" else "Показать подробности") }
         }
         if (!details) item {
             Card(Modifier.fillMaxWidth()) {
@@ -121,9 +144,55 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                         signal.rsrp >= -100 -> AccentCyan
                         else -> AccentRed
                     })
-                    Text(if (validSignal && freshness == SignalFreshnessStatus.UNKNOWN_MODEM_TIME) "Возраст показаний неизвестен. Это уровень сигнала, не скорость интернета." else "Уровень сигнала не гарантирует скорость. Для сведений о соте нужен доступ к точному местоположению.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (ping != null) Text("Задержка до сайта Яндекса: $ping мс; в играх может отличаться.", style = MaterialTheme.typography.bodySmall)
+                    Text(if (validSignal && freshness == SignalFreshnessStatus.UNKNOWN_MODEM_TIME) "Возраст данных неизвестен." else if (validSignal) "Уровень сигнала, не скорость интернета." else "Проверьте доступ к местоположению в настройках ниже.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                    Text(if (busy) "Проверяем…" else if (details) "Проверить связь и DNS" else "Проверить связь")
+                }
+                if (busy) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(when (checkPhase) {
+                                CheckPhase.CONNECTING -> "Подключаемся к сайту…"
+                                CheckPhase.TCP -> "Проверка связи: $attemptsDone из $attemptsTotal"
+                                CheckPhase.DNS -> "Сравниваем DNS…"
+                                else -> "Проверяем…"
+                            }, style = MaterialTheme.typography.titleSmall)
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            TextButton(onClick = { boostJob?.cancel() }) { Text("Остановить проверку") }
+                        }
+                    }
+                }
+                if (checkPhase == CheckPhase.DONE) checkResult?.let { result ->
+                    val summary = homeCheckSummary(result)
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("РЕЗУЛЬТАТ ПРОВЕРКИ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(summary.headline, style = MaterialTheme.typography.headlineSmall,
+                                color = when {
+                                    !summary.hasMeasurement -> MaterialTheme.colorScheme.error
+                                    result.avgMs > 120 -> AccentRed
+                                    result.avgMs > 70 || result.successfulAttempts < result.attemptsMade -> AccentCyan
+                                    else -> AccentGreen
+                                })
+                            Text(summary.explanation, style = MaterialTheme.typography.bodySmall)
+                            if (details) Text(dns?.let { "DNS: ${it.name} · ${it.ms} мс, не подключён." } ?: "DNS: результата нет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                if (checkPhase == CheckPhase.ERROR || checkPhase == CheckPhase.CANCELLED) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Text(if (checkPhase == CheckPhase.CANCELLED) "Проверка остановлена." else errorText,
+                            modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                OutlinedButton(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Снизить нагрузку на сеть") }
+                Text("Пауза загрузок и сравнение задержки. Улучшение не гарантировано.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!expert) TextButton(onClick = { expanded = !expanded }, enabled = !busy) { Text(if (expanded) "Скрыть подробности" else "Показать подробности") }
             }
         }
         if (details) item {
@@ -142,24 +211,6 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 Spacer(Modifier.height(8.dp))
                 Text(score?.let { QualityText.scoreVerdict(it) } ?: "Ожидание данных", style = MaterialTheme.typography.titleMedium)
                 Text("Оценка по TCP-задержке и сигналу, не гарантия скорости", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        item {
-            Button(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                Text("⚡ Снизить нагрузку на сеть")
-            }
-            Text("Откроется снижение нагрузки на сеть: вы сами выбираете действие, затем можно сравнить задержку до и после.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                Text(if (busy) "ИЗМЕРЯЕМ…" else if (details) "Измерить связь и DNS" else "Проверить связь")
-            }
-            if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
-        if (report.isNotEmpty()) item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("РЕЗУЛЬТАТ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    report.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                }
             }
         }
         item { ConnectionGuide(hasDisplayableSignal = validSignal) }

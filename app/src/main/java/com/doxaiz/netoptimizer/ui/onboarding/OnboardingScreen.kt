@@ -92,14 +92,14 @@ fun OnboardingScreen(onDone: () -> Unit) {
             item {
                 Text("NET OPTIMIZER", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Text("Подготовим приложение", style = MaterialTheme.typography.headlineSmall)
-                Text("Выберите удобный вид и при желании включите нужные доступы. Без них приложение тоже откроется, но часть функций будет недоступна.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Выберите вид. Доступы можно включить сейчас или позже.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Как вам удобнее?", style = MaterialTheme.typography.titleMedium)
-                        ModeChoice("Обычный", "Только основные действия; подробности можно раскрыть.", interfaceMode == InterfaceMode.SIMPLE) { interfaceMode = InterfaceMode.SIMPLE }
-                        ModeChoice("Эксперт", "Все показатели и инструменты сразу.", interfaceMode == InterfaceMode.EXPERT) { interfaceMode = InterfaceMode.EXPERT }
+                        ModeChoice("Обычный", "Основные действия и понятные результаты.", interfaceMode == InterfaceMode.SIMPLE) { interfaceMode = InterfaceMode.SIMPLE }
+                        ModeChoice("Эксперт", "Все показатели и инструменты.", interfaceMode == InterfaceMode.EXPERT) { interfaceMode = InterfaceMode.EXPERT }
                         Text("Режим можно изменить в настройках.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -108,16 +108,16 @@ fun OnboardingScreen(onDone: () -> Unit) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Для основных возможностей", style = MaterialTheme.typography.titleMedium)
-                        SetupItem("Сигнал и сота", if (cellAccess) "Доступ к точному местоположению включён." else "Android требует точное местоположение для сведений о соте. Координаты не сохраняются приложением.", cellAccess) {
+                        SetupItem("Сигнал и сота", if (cellAccess) "Доступ к точному местоположению включён." else "Для сведений о соте нужно точное местоположение. Координаты не сохраняются.", cellAccess) {
                             locationRequest.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
                         }
                         if (!cellAccess) TextButton(onClick = { if (!openAppDetails(context)) message = "Откройте настройки приложения в Android вручную." }) { Text("Открыть разрешения приложения") }
                         if (locationEnabled == false) {
-                            Text("Местоположение телефона выключено. На некоторых устройствах его тоже нужно включить для данных о соте; результат зависит от Android и модема.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Для данных о соте может понадобиться включить местоположение телефона.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             TextButton(onClick = { if (!open(context, Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))) message = "Откройте настройки местоположения Android вручную." }) { Text("Настройки местоположения") }
                         }
                         HorizontalDivider()
-                        SetupItem("Трафик приложений", if (usageAccess) "Доступ к статистике включён." else "Нужен доступ к истории использования, чтобы увидеть расход мобильного интернета по приложениям.", usageAccess) {
+                        SetupItem("Трафик приложений", if (usageAccess) "Доступ к статистике включён." else "Нужен доступ к истории использования, чтобы увидеть расход по приложениям.", usageAccess) {
                             if (!traffic.openUsageAccess()) message = "Откройте доступ к истории использования в настройках Android вручную."
                         }
                     }
@@ -129,16 +129,16 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         Text("Дополнительно", style = MaterialTheme.typography.titleMedium)
                         val ready = shizukuStatus == ShizukuManager.Status.READY
                         SetupItem("Shizuku · не обязательно", when (shizukuStatus) {
-                            ShizukuManager.Status.READY -> "Подключён. Остановка выбранных приложений выполняется только с подтверждением; работа зависит от устройства."
+                            ShizukuManager.Status.READY -> "Подключён. Остановка приложений — только с подтверждением."
                             ShizukuManager.Status.NO_PERMISSION -> "Запущен. Можно разрешить дополнительный доступ."
-                            else -> "Позволяет пробовать остановку выбранных приложений. Установите и запустите Shizuku по его инструкции (например, через беспроводную отладку), вернитесь сюда и разрешите доступ. Без него используйте системные настройки."
+                            else -> "Для остановки выбранных приложений. Установите и запустите Shizuku по его инструкции, затем вернитесь сюда. Без него доступны системные настройки."
                         }, ready, if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) "Разрешить" else "Установить или открыть") {
                             if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) ShizukuManager.requestPermission(1001)
                             else if (!ShizukuManager.openAppOrStore(context)) message = "Не удалось открыть Shizuku. Найдите его в магазине приложений или на GitHub."
                         }
                         HorizontalDivider()
                         Text("Работа в фоне: пока недоступна", style = MaterialTheme.typography.titleSmall)
-                        Text("Сейчас замеры работают только на экране и останавливаются при сворачивании. Исключение из оптимизации батареи это не изменит.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Замеры работают на экране. Исключение из оптимизации батареи не включает фоновую работу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(if (batteryExempt) "Android: ограничение батареи снято." else "Android: ограничение батареи не снято (не обязательно).", style = MaterialTheme.typography.bodySmall)
                         OutlinedButton(onClick = { if (!requestIgnoreBattery(context)) message = "Откройте настройки батареи приложения вручную." }) { Text("Настройки батареи") }
                     }
@@ -146,7 +146,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
             }
             item {
                 message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                Text("История хранится на телефоне. Сетевые замеры обращаются к сторонним серверам и расходуют мобильный трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("История хранится на телефоне. Замеры используют сторонние серверы и мобильный трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
