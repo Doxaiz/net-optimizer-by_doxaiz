@@ -1,5 +1,7 @@
 package com.doxaiz.netoptimizer.ui.sessions
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -18,14 +21,21 @@ import com.doxaiz.netoptimizer.DoxaizApp
 import com.doxaiz.netoptimizer.core.data.SessionEntity
 import com.doxaiz.netoptimizer.core.session.MetricLevel
 import com.doxaiz.netoptimizer.core.session.SessionController
+import com.doxaiz.netoptimizer.core.session.SessionCsv
 import com.doxaiz.netoptimizer.core.session.SessionInsights
 import com.doxaiz.netoptimizer.core.session.SessionPhase
 import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.ui.home.WorkMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -55,6 +65,43 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
     var deleteId by remember { mutableStateOf<Long?>(null) }
     var operationMessage by remember { mutableStateOf("") }
     var confirmDiscard by remember { mutableStateOf(false) }
+    var exportMessage by remember { mutableStateOf("") }
+    var exporting by remember { mutableStateOf(false) }
+    var pickerPending by rememberSaveable { mutableStateOf(false) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        pickerPending = false
+        if (uri == null) {
+            exportMessage = "Сохранение файла отменено."
+        } else {
+            exporting = true
+            exportMessage = ""
+            scope.launch {
+                try {
+                    val count = withContext(Dispatchers.IO) {
+                        val snapshot = repo.observeAll().first()
+                        if (snapshot.isEmpty()) throw IllegalStateException("No saved sessions")
+                        val jobContext = currentCoroutineContext()
+                        jobContext.ensureActive()
+                        val stream = context.applicationContext.contentResolver.openOutputStream(uri, "wt")
+                            ?: throw java.io.IOException("Document is unavailable")
+                        stream.use { output ->
+                            OutputStreamWriter(output, Charsets.UTF_8).buffered().use { writer ->
+                                SessionCsv.write(writer, snapshot) { jobContext.ensureActive() }
+                            }
+                        }
+                        snapshot.size
+                    }
+                    exportMessage = "Сохранён CSV: записей $count. Проверьте файл в выбранной папке."
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    exportMessage = "Не удалось сохранить CSV. Выбранный файл может быть неполным; попробуйте ещё раз."
+                } finally {
+                    exporting = false
+                }
+            }
+        }
+    }
     val detail = sessions.firstOrNull { it.id == detailId }
     val deleteTarget = sessions.firstOrNull { it.id == deleteId }
 
@@ -137,6 +184,15 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
         }
         item {
             Text("ИСТОРИЯ · ВЫБЕРИТЕ ДВЕ ДЛЯ СРАВНЕНИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = {
+                try { pickerPending = true; exportLauncher.launch("doxaiz-sessions.csv") }
+                catch (_: Exception) { pickerPending = false; exportMessage = "Не удалось открыть выбор файла в Android." }
+            }, enabled = sessions.isNotEmpty() && !exporting && !pickerPending, modifier = Modifier.fillMaxWidth()) {
+                Text(if (exporting) "Сохраняем CSV…" else "Экспортировать историю в CSV")
+            }
+            Text("Только сохранённые сессии, без черновика. CSV содержит даты, оператора и замеры, не зашифрован и не восстанавливается в приложении; выберите «Загрузки» вне папки приложения. При выборе облака файл передаётся выбранному сервису. Не закрывайте экран до завершения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.phase == SessionPhase.RUNNING) Text("При выборе файла активная сессия может перейти на паузу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (exportMessage.isNotEmpty()) Text(exportMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (operationMessage.isNotEmpty()) Text(operationMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         when (history) {
