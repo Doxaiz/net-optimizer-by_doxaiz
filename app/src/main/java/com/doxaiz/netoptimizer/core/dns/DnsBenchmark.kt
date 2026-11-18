@@ -5,14 +5,19 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import com.doxaiz.netoptimizer.core.net.CellularNetwork
+import java.util.concurrent.atomic.AtomicBoolean
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
-import java.util.Random
-import kotlin.math.roundToInt
 
 /** Бесплатные DNS-серверы для бенчмарка */
-data class DnsServer(val name: String, val ip: String, val hint: String, val ms: Int = 0)
+data class DnsServer(val name: String, val ip: String, val hint: String, val ms: Int = -1)
 
 object DnsCatalog {
     val servers = listOf(
@@ -27,24 +32,56 @@ object DnsCatalog {
 
 /**
  * Реальный замер DNS: отправляет настоящий DNS-запрос (UDP/53) на сервер
- * и меряет время ответа. Медиана из 5 попыток. Серверы замеряются параллельно.
+ * и меряет время ответа. Медиана минимум 3 из 5 попыток. Серверы замеряются параллельно.
  */
 class DnsBenchmark(private val context: android.content.Context) {
 
-    suspend fun measure(server: DnsServer): Int = withContext(Dispatchers.IO) {
-        val network = com.doxaiz.netoptimizer.core.net.CellularNetwork.active(context) ?: return@withContext -1
-        val times = mutableListOf<Int>()
-        repeat(5) {
-            val t = measureOnce(network, server.ip)
-            if (t >= 0) times += t
+    suspend fun benchmarkAll(): List<DnsServer> = withContext(Dispatchers.IO) {
+        val unavailable = DnsCatalog.servers.map { it.copy(ms = -1) }
+        val network = CellularNetwork.active(context) ?: return@withContext unavailable
+        val manager = context.getSystemService(ConnectivityManager::class.java) ?: return@withContext unavailable
+        val changed = AtomicBoolean(false)
+        val lowBattery = AtomicBoolean(false)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(available: Network) { if (available != network) changed.set(true) }
+            override fun onLost(lost: Network) { if (lost == network) changed.set(true) }
+            override fun onCapabilitiesChanged(current: Network, caps: NetworkCapabilities) {
+                if (current == network && (!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                        !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))) changed.set(true)
+            }
         }
-        if (times.isEmpty()) -1 else times.sorted()[times.size / 2]
-    }
-
-    suspend fun benchmarkAll(): List<DnsServer> = coroutineScope {
-        DnsCatalog.servers.map { server ->
-            async(Dispatchers.IO) { server.copy(ms = measure(server)) }
-        }.awaitAll().sortedBy { if (it.ms < 0) Int.MAX_VALUE else it.ms }
+        try {
+            manager.registerDefaultNetworkCallback(callback)
+        } catch (_: Exception) {
+            return@withContext unavailable
+        }
+        fun safe(): Boolean {
+            if (CellularNetwork.active(context) != network) changed.set(true)
+            if (!CellularNetwork.batteryOk(context)) lowBattery.set(true)
+            return !changed.get() && !lowBattery.get()
+        }
+        try {
+            if (!safe()) return@withContext unavailable
+            val measured = coroutineScope {
+                DnsCatalog.servers.map { server ->
+                    async(Dispatchers.IO) {
+                        val times = mutableListOf<Int>()
+                        repeat(5) {
+                            currentCoroutineContext().ensureActive()
+                            if (!safe()) return@async server.copy(ms = -1)
+                            val time = measureOnce(network, server.ip)
+                            currentCoroutineContext().ensureActive()
+                            if (!safe()) return@async server.copy(ms = -1)
+                            if (time >= 0) times.add(time)
+                        }
+                        server.copy(ms = if (times.size < 3) -1 else times.sorted()[times.size / 2])
+                    }
+                }.awaitAll()
+            }
+            if (!safe()) unavailable else measured.sortedBy { if (it.ms < 0) Int.MAX_VALUE else it.ms }
+        } finally {
+            try { manager.unregisterNetworkCallback(callback) } catch (_: Exception) { }
+        }
     }
 
     private fun measureOnce(network: android.net.Network, ip: String): Int {
@@ -52,16 +89,14 @@ class DnsBenchmark(private val context: android.content.Context) {
         return try {
             network.bindSocket(socket)
             socket.soTimeout = 1500
-            val query = buildDnsQuery("example.com")
+            val query = DnsWire.query()
             socket.connect(InetSocketAddress(ip, 53))
             val start = System.nanoTime()
             socket.send(DatagramPacket(query, query.size, InetSocketAddress(ip, 53)))
             val buf = ByteArray(512)
             val response = DatagramPacket(buf, buf.size)
             socket.receive(response)
-            if (response.length < 12 || buf[0] != query[0] || buf[1] != query[1] ||
-                (buf[2].toInt() and 0x80) == 0 || (buf[2].toInt() and 0x02) != 0 ||
-                (buf[3].toInt() and 0x0f) != 0 || (buf[6].toInt() == 0 && buf[7].toInt() == 0)) return -1
+            if (!DnsWire.validResponse(query, buf, response.length)) return -1
             ((System.nanoTime() - start) / 1_000_000).toInt()
         } catch (_: Exception) {
             -1
@@ -70,23 +105,4 @@ class DnsBenchmark(private val context: android.content.Context) {
         }
     }
 
-    /** Минимальный DNS-запрос A-записи */
-    private fun buildDnsQuery(domain: String): ByteArray {
-        val labels = domain.split(".")
-        val qnameLen = labels.sumOf { it.length + 1 } + 1
-        val buf = ByteArray(12 + qnameLen + 4)
-        buf[0] = (Random().nextInt(256)).toByte()
-        buf[1] = (Random().nextInt(256)).toByte()
-        buf[2] = 0x01 // Recursion Desired
-        buf[5] = 0x01 // QDCOUNT = 1
-        var pos = 12
-        for (label in labels) {
-            buf[pos++] = label.length.toByte()
-            for (c in label) buf[pos++] = c.code.toByte()
-        }
-        buf[pos++] = 0 // root
-        buf[pos++] = 0; buf[pos++] = 1 // QTYPE = A
-        buf[pos++] = 0; buf[pos++] = 1 // QCLASS = IN
-        return buf
-    }
 }

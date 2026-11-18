@@ -68,7 +68,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                 val before = tester.test(target)
                 val best = DnsBenchmark(context).benchmarkAll().firstOrNull { it.ms >= 0 }
                 dns = best
-                lines += if (best != null) "DNS-кандидат: ${best.name} · ${best.ms} мс. Подключение DNS пока недоступно." else "DNS: не удалось получить ответ."
+                lines += if (best != null) "DNS-кандидат по UDP: ${best.name} · ${best.ms} мс. DoT не проверялся. Настроить вручную можно в Инструменты → DNS." else "DNS: не удалось получить ответ."
                 if (CellularNetwork.batteryOk(context) && CellularNetwork.active(context) == network) {
                     val profile = if (mode == WorkMode.NORMAL) KeepAliveProfile.BALANCE else KeepAliveProfile.MAX
                     keepAlive.start(scope, profile)

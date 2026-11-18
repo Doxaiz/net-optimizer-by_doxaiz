@@ -24,6 +24,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -38,6 +40,7 @@ import com.doxaiz.netoptimizer.core.cellular.RadioChannels
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
+import com.doxaiz.netoptimizer.core.dns.PrivateDns
 import com.doxaiz.netoptimizer.core.dns.DoxaizVpnService
 import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
 import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
@@ -86,6 +89,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var dnsList by remember { mutableStateOf(DnsCatalog.servers) }
     var selectedDns by remember { mutableStateOf<DnsServer?>(null) }
     var benching by remember { mutableStateOf(false) }
+    var benchJob by remember { mutableStateOf<Job?>(null) }
+    var dnsError by remember { mutableStateOf(false) }
     var pingResults by remember { mutableStateOf<Map<String, PingResult>>(emptyMap()) }
     var pingTesting by remember { mutableStateOf(false) }
     var customHost by rememberSaveable { mutableStateOf("") }
@@ -110,17 +115,22 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) speedJob?.cancel()
+            if (event == Lifecycle.Event.ON_STOP) {
+                speedJob?.cancel()
+                benchJob?.cancel()
+            }
         }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
             speedJob?.cancel()
+            benchJob?.cancel()
         }
     }
     val listState = rememberLazyListState()
     LaunchedEffect(section) {
         if (section != ToolsSection.TESTS) speedJob?.cancel()
+        if (section != ToolsSection.DNS) benchJob?.cancel()
         listState.scrollToItem(0)
     }
 
@@ -193,7 +203,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Бенчмарк DNS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        Text("Подключение DNS и блокировка трекеров временно отключены: VPN требует доработки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Запрос example.com по обычному UDP/53 без шифрования. Это не проверка Private DNS (DoT) и не подключение DNS; скорость зависит от сети. Минимум 3 ответа из 5.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         dnsList.forEach { d ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -204,25 +214,40 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                                     Text(d.name)
                                     Text(d.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Text(if (d.ms > 0) "${d.ms} мс" else "—", color = if (d.ms in 1..14) AccentGreen else AccentCyan)
+                                Text(if (d.ms >= 0) "${d.ms} мс" else "—", color = if (d.ms in 0..14) AccentGreen else if (d.ms >= 0) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                        }
+                        if (dnsError) Text("Не удалось выполнить замер DNS.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        if (!benching && dnsList.all { it.ms < 0 } && selectedDns == null) {
+                            Text("Нет результатов. Возможные причины: нет мобильной сети, заряд ниже 20%, UDP/53 заблокирован или сервер недоступен.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {
                                 benching = true
-                                scope.launch {
-                                    dnsList = bench.benchmarkAll()
-                                    selectedDns = dnsList.firstOrNull { it.ms > 0 }
-                                    benching = false
+                                dnsError = false
+                                dnsList = DnsCatalog.servers
+                                selectedDns = null
+                                benchJob = scope.launch {
+                                    try {
+                                        dnsList = bench.benchmarkAll()
+                                        selectedDns = dnsList.firstOrNull { it.ms >= 0 }
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (_: Exception) {
+                                        dnsError = true
+                                    } finally {
+                                        benching = false
+                                    }
                                 }
                             },
                             enabled = !benching,
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text(if (benching) "⏳ Замеряю…" else "🔎 Найти самый быстрый DNS") }
+                        ) { Text(if (benching) "⏳ Замеряю…" else "🔎 Сравнить DNS по UDP") }
                     }
                 }
             }
+            if (section == ToolsSection.DNS) item { PrivateDnsCard() }
             // Спидтест
             if (section == ToolsSection.TESTS) item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -426,6 +451,72 @@ private fun CurrentCellDetails(signal: SignalState) {
             if (signal.bandHint.isNotEmpty()) Text(signal.bandHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+@Composable
+private fun PrivateDnsCard() {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    var host by rememberSaveable { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
+    var copied by remember { mutableStateOf(false) }
+    var settingsError by remember { mutableStateOf(false) }
+    val selected = PrivateDns.providers.firstOrNull { it.hostname == PrivateDns.hostname(host) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("ПЕРСОНАЛЬНЫЙ DNS ANDROID", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Без VPN: выберите провайдера или введите своё имя сервера DNS-over-TLS. Изменение выполняется вами в настройках Android, приложение DNS не подключает и не проверяет.", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrivateDns.providers.forEach { provider ->
+                    FilterChip(
+                        selected = selected == provider,
+                        onClick = { host = provider.hostname; error = ""; copied = false },
+                        label = { Text(provider.name) }
+                    )
+                }
+            }
+            if (selected != null) Text(selected.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = host,
+                onValueChange = { host = it.take(253); error = ""; copied = false },
+                label = { Text("Имя сервера DoT") },
+                placeholder = { Text("Например, dns.google") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                singleLine = true, isError = error.isNotEmpty(), modifier = Modifier.fillMaxWidth()
+            )
+            if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = {
+                val normalized = PrivateDns.hostname(host)
+                if (normalized == null) {
+                    error = "Нужно имя хоста DoT без IP-адреса, порта, tls:// или https://."
+                    copied = false
+                } else {
+                    clipboard.setText(AnnotatedString(normalized))
+                    host = normalized
+                    error = ""
+                    copied = true
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("Скопировать имя") }
+            if (copied) Text("Имя скопировано. Вставьте его в системных настройках и сохраните.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            OutlinedButton(onClick = { settingsError = !openNetworkSettings(context) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Открыть настройки сети")
+            }
+            if (settingsError) Text("Не удалось открыть настройки. Откройте их вручную.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text("В настройках найдите «Персональный/Частный DNS» → имя хоста провайдера → вставьте имя → Сохранить. Пункты в XOS могут называться иначе; используйте поиск настроек.", style = MaterialTheme.typography.bodySmall)
+            Text("Важно: системная настройка действует на всех сетях, не только мобильной. Запомните прежний режим и имя. Если интернет перестал работать, верните прежнюю настройку или выберите «Автоматически». Выбранный провайдер видит DNS-запросы. Некоторые приложения и VPN могут использовать собственный DNS; фильтрация не блокирует всю рекламу или трекеры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun openNetworkSettings(context: android.content.Context): Boolean {
+    for (action in listOf(android.provider.Settings.ACTION_WIRELESS_SETTINGS, android.provider.Settings.ACTION_SETTINGS)) {
+        try {
+            context.startActivity(android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            return true
+        } catch (_: android.content.ActivityNotFoundException) {
+        } catch (_: SecurityException) { }
+    }
+    return false
 }
 
 private fun probeShortDescription(result: PingResult): String = when (result.status) {
