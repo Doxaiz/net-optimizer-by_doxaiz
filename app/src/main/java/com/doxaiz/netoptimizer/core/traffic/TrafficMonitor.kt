@@ -124,6 +124,23 @@ class TrafficMonitor(private val context: Context) {
         }
     }
 
+    /** Recheck package identity and protection immediately before each user-confirmed stop. */
+    internal suspend fun canStopNow(target: StopTarget): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val pm = context.packageManager
+            val info = pm.getApplicationInfo(target.packageName, 0)
+            val packages = pm.getPackagesForUid(target.uid)?.toList().orEmpty()
+            val dialer = try { context.getSystemService(android.telecom.TelecomManager::class.java)?.defaultDialerPackage } catch (_: Exception) { null }
+            val sms = try { android.provider.Telephony.Sms.getDefaultSmsPackage(context) } catch (_: Exception) { null }
+            val launcher = try {
+                pm.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+            } catch (_: Exception) { null }
+            val protected = protectedByUser() + protectedPackages + listOfNotNull(dialer, sms, launcher)
+            StopPolicy.eligible(target, Process.myUid(), info.uid, packages,
+                info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0, protected)
+        } catch (_: Exception) { false }
+    }
+
     fun openUsageAccess(): Boolean = open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     fun openAppSettings(packageName: String): Boolean = open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = android.net.Uri.parse("package:$packageName")

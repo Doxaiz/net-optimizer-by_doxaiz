@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,7 +22,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
+import com.doxaiz.netoptimizer.core.net.CellularNetwork
 import com.doxaiz.netoptimizer.core.traffic.AppTraffic
+import com.doxaiz.netoptimizer.core.traffic.BatchStop
+import com.doxaiz.netoptimizer.core.traffic.StopOutcome
+import com.doxaiz.netoptimizer.core.traffic.StopPolicy
+import com.doxaiz.netoptimizer.core.traffic.StopResult
+import com.doxaiz.netoptimizer.core.traffic.StopTarget
 import com.doxaiz.netoptimizer.core.traffic.MobileRate
 import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
@@ -37,10 +44,16 @@ import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private class StopHalted(message: String) : Exception(message)
 
 @Composable
 fun TrafficScreen(modifier: Modifier = Modifier) {
@@ -60,17 +73,30 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
     var filter by remember { mutableStateOf("all") }
     var notice by remember { mutableStateOf<String?>(null) }
     var pendingStop by remember { mutableStateOf<AppTraffic?>(null) }
+    var pendingBatch by remember { mutableStateOf(false) }
+    var selectedApps by remember { mutableStateOf<Map<String, AppTraffic>>(emptyMap()) }
+    var stopResults by remember { mutableStateOf<List<StopResult>>(emptyList()) }
+    var stopJob by remember { mutableStateOf<Job?>(null) }
+    var stopping by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycle, optimizer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> { foreground = true; optimizer.onStart() }
-                Lifecycle.Event.ON_STOP -> { foreground = false; optimizer.onStop() }
+                Lifecycle.Event.ON_STOP -> {
+                    foreground = false
+                    optimizer.onStop()
+                    pendingStop = null; pendingBatch = false
+                    if (stopping) {
+                        stopJob?.cancel()
+                        notice = "Оставшиеся команды отменены. Уже запущенная команда могла выполниться."
+                    }
+                }
                 else -> Unit
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); optimizer.clear() }
+        onDispose { lifecycle.removeObserver(observer); stopJob?.cancel(); optimizer.clear() }
     }
     LaunchedEffect(monitor, foreground) {
         rate = null
@@ -91,27 +117,105 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
     fun isProtected(app: AppTraffic) = app.systemProtected || app.packageNames.any { it in protectedApps }
     val shown = summary?.apps.orEmpty().filter { filter == "all" || isProtected(it) }
 
+    fun stopSelected() {
+        if (stopping) return
+        val targets = selectedApps.values.mapNotNull { app -> app.packageNames.singleOrNull()?.let { StopTarget(app.uid, it, app.label) } }
+        val initial = CellularNetwork.active(context)
+        if (targets.isEmpty() || initial == null) {
+            notice = "Выберите приложения и подключите мобильный интернет."
+            return
+        }
+        if (!ShizukuManager.isReady()) {
+            notice = "Для общей остановки нужен запущенный Shizuku с разрешением. Без него используйте «Стоп» у каждого приложения и системные настройки."
+            return
+        }
+        stopResults = emptyList()
+        notice = "Отправляем команды…"
+        stopping = true
+        stopJob = scope.launch {
+            try {
+                BatchStop.run(targets, { monitor.canStopNow(it) }, { target ->
+                    if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) || CellularNetwork.active(context) != initial) throw StopHalted("Мобильная сеть изменилась; оставшиеся команды не отправлены.")
+                    if (!ShizukuManager.isReady()) throw StopHalted("Shizuku недоступен; оставшиеся команды не отправлены.")
+                    ShizukuManager.forceStopApp(target.packageName)
+                }, { result ->
+                    stopResults = stopResults + result
+                    if (result.outcome != StopOutcome.FAILED) selectedApps = selectedApps - result.target.packageName
+                })
+                notice = "Проверка команд завершена. Успех команды не доказывает, что приложение использовало сеть или что связь улучшилась."
+            } catch (e: CancellationException) {
+                notice = "Оставшиеся команды отменены. Уже запущенная команда могла выполниться."
+                throw e
+            } catch (e: StopHalted) {
+                notice = e.message
+            } catch (_: Exception) {
+                notice = "Не удалось завершить обработку. Уже запущенная команда могла выполниться."
+            } finally {
+                stopping = false
+                stopJob = null
+            }
+        }
+    }
+
     pendingStop?.let { app ->
         AlertDialog(
             onDismissRequest = { pendingStop = null },
             title = { Text("Остановить ${app.label}?") },
-            text = { Text("Принудительная остановка может прервать загрузки и уведомления. Без работающего Shizuku откроется системная карточка, где действие нужно подтвердить вручную.") },
+            text = { Text("Принудительная остановка влияет на всё приложение, не только мобильный интернет: могут прерваться загрузки, фоновые задачи и уведомления. Без Shizuku откроется системная карточка, где действие нужно подтвердить вручную.") },
             confirmButton = {
                 TextButton(onClick = {
                     pendingStop = null
                     val pkg = app.packageNames.singleOrNull()
-                    if (pkg != null && !isProtected(app)) {
-                        scope.launch {
-                            if (ShizukuManager.isReady() && ShizukuManager.forceStopApp(pkg)) {
-                                notice = "Команда остановки отправлена: ${app.label}."
-                            } else {
-                                notice = if (monitor.openAppSettings(pkg)) "Открыта карточка приложения; при необходимости нажмите «Остановить»." else "Не удалось открыть карточку приложения."
+                    if (pkg != null && !isProtected(app) && !stopping) {
+                        val initial = CellularNetwork.active(context)
+                        if (initial == null) {
+                            notice = "Подключите мобильный интернет, чтобы выполнить действие."
+                        } else {
+                            stopping = true
+                            stopJob = scope.launch {
+                                try {
+                                    val target = StopTarget(app.uid, pkg, app.label)
+                                    val allowed = monitor.canStopNow(target)
+                                    currentCoroutineContext().ensureActive()
+                                    when {
+                                        !allowed -> notice = "Приложение защищено или изменилось; команда не отправлена."
+                                        CellularNetwork.active(context) != initial -> notice = "Мобильная сеть изменилась; команда не отправлена."
+                                        ShizukuManager.isReady() && ShizukuManager.forceStopApp(pkg) -> {
+                                            notice = "Команда остановки принята: ${app.label}. Эффект на сеть не проверен."
+                                            selectedApps = selectedApps - pkg
+                                        }
+                                        else -> {
+                                            currentCoroutineContext().ensureActive()
+                                            notice = if (monitor.openAppSettings(pkg)) "Открыта карточка приложения; при необходимости нажмите «Остановить»." else "Не удалось открыть карточку приложения."
+                                        }
+                                    }
+                                } catch (e: CancellationException) {
+                                    notice = "Действие отменено. Уже запущенная команда могла выполниться."
+                                    throw e
+                                } catch (_: Exception) {
+                                    notice = "Не удалось выполнить действие."
+                                } finally { stopping = false; stopJob = null }
                             }
                         }
                     }
                 }) { Text("Продолжить") }
             },
             dismissButton = { TextButton(onClick = { pendingStop = null }) { Text("Отмена") } }
+        )
+    }
+
+    if (pendingBatch) {
+        AlertDialog(
+            onDismissRequest = { pendingBatch = false },
+            title = { Text("Остановить выбранные приложения?") },
+            text = {
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Остановятся целые приложения, не только их мобильный трафик. Могут прерваться загрузки, фоновые задачи и уведомления. История расхода не доказывает, что они сейчас активны. Для общей остановки необходим Shizuku.")
+                    selectedApps.values.forEach { app -> Text("• ${app.label} (${app.packageNames.singleOrNull() ?: "—"})", style = MaterialTheme.typography.bodySmall) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pendingBatch = false; stopSelected() }) { Text("Остановить выбранные") } },
+            dismissButton = { TextButton(onClick = { pendingBatch = false }) { Text("Отмена") } }
         )
     }
 
@@ -171,6 +275,20 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
                 }
             }
             Text("Белый список защищает от остановки в этом приложении. Блокировка сети пока недоступна. Системные компоненты и общие UID защищены автоматически.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            Text("Выберите ненужные приложения ниже: ${selectedApps.size}/${StopPolicy.MAX_TARGETS}", style = MaterialTheme.typography.bodyMedium)
+            Text("Выбор не означает, что они сейчас нагружают сеть. Команда останавливает приложения целиком и может затронуть уведомления и другие соединения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = { pendingBatch = true }, enabled = selectedApps.isNotEmpty() && !stopping && !loading, modifier = Modifier.fillMaxWidth()) { Text("Остановить выбранные через Shizuku") }
+            if (stopping) TextButton(onClick = { stopJob?.cancel() }) { Text("Отменить оставшиеся команды") }
+            if (selectedApps.isNotEmpty() && !stopping) TextButton(onClick = { selectedApps = emptyMap() }) { Text("Очистить выбор") }
+            stopResults.forEach { result ->
+                val text = when (result.outcome) {
+                    StopOutcome.SENT -> "команда принята"
+                    StopOutcome.FAILED -> "не удалось отправить команду"
+                    StopOutcome.PROTECTED_OR_CHANGED -> "пропущено: защита или изменение приложения"
+                }
+                Text("${result.target.label}: $text", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             if (!loading && summary?.status == TrafficSummaryStatus.READY && shown.isEmpty() && filter == "white") {
                 Text("Защищённых записей с расходом за выбранный период нет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -178,11 +296,20 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
         }
         items(shown, key = { it.uid }) { app ->
             val userProtected = app.packageNames.singleOrNull()?.let { it in protectedApps } == true
-            TrafficRow(app, userProtected,
+            val pkg = app.packageNames.singleOrNull()
+            TrafficRow(app, userProtected, selected = pkg != null && pkg in selectedApps, enabled = !stopping,
                 onProtection = { protect ->
-                    app.packageNames.singleOrNull()?.let { pkg ->
-                        monitor.setProtected(pkg, protect)
+                    pkg?.let {
+                        monitor.setProtected(it, protect)
                         protectedApps = monitor.protectedByUser()
+                        if (protect) selectedApps = selectedApps - it
+                    }
+                },
+                onSelect = { choose ->
+                    if (pkg != null && !isProtected(app)) {
+                        if (!choose) selectedApps = selectedApps - pkg
+                        else if (selectedApps.size < StopPolicy.MAX_TARGETS) selectedApps = selectedApps + (pkg to app)
+                        else notice = "Можно выбрать не более ${StopPolicy.MAX_TARGETS} приложений за раз."
                     }
                 },
                 onStop = { pendingStop = app })
@@ -231,7 +358,7 @@ private fun loadSampleText(sample: LoadSample): String =
     "${sample.averageMs} мс · разброс ${sample.jitterMs} мс · ${sample.successes}/${sample.attempts} успешных"
 
 @Composable
-private fun TrafficRow(app: AppTraffic, userProtected: Boolean, onProtection: (Boolean) -> Unit, onStop: () -> Unit) {
+private fun TrafficRow(app: AppTraffic, userProtected: Boolean, selected: Boolean, enabled: Boolean, onProtection: (Boolean) -> Unit, onSelect: (Boolean) -> Unit, onStop: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(app.label + if (app.systemProtected || userProtected) " 🛡" else "", style = MaterialTheme.typography.titleSmall)
@@ -241,8 +368,14 @@ private fun TrafficRow(app: AppTraffic, userProtected: Boolean, onProtection: (B
                 if (app.systemProtected) {
                     Text("Системная защита", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    TextButton(onClick = { onProtection(!userProtected) }) { Text(if (userProtected) "Убрать защиту" else "Защитить") }
-                    TextButton(onClick = onStop, enabled = !userProtected) { Text("Стоп") }
+                    TextButton(onClick = { onProtection(!userProtected) }, enabled = enabled) { Text(if (userProtected) "Убрать защиту" else "Защитить") }
+                    TextButton(onClick = onStop, enabled = enabled && !userProtected) { Text("Стоп") }
+                }
+            }
+            if (!app.systemProtected && !userProtected && app.packageNames.size == 1) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = selected, onCheckedChange = onSelect, enabled = enabled)
+                    Text("Выбрать для остановки", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
