@@ -93,6 +93,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     var benching by remember { mutableStateOf(false) }
     var benchJob by remember { mutableStateOf<Job?>(null) }
     var dnsError by remember { mutableStateOf(false) }
+    var dnsTried by remember { mutableStateOf(false) }
     var pingResults by remember { mutableStateOf<Map<String, PingResult>>(emptyMap()) }
     var pingTesting by remember { mutableStateOf(false) }
     var pingError by remember { mutableStateOf(false) }
@@ -261,7 +262,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                     Column(Modifier.padding(14.dp)) {
                         Text("Бенчмарк DNS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        Text("Запрос example.com по обычному UDP/53 без шифрования. Это не проверка Private DNS (DoT) и не подключение DNS; скорость зависит от сети. Минимум 3 ответа из 5.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Пять запросов example.com по обычному UDP/53 без шифрования; для медианы нужно минимум 3 корректных ответа. Повторные ответы могут идти из кэша, а сеть может перехватывать DNS: результат не подтверждает личность сервера. Это не проверка или включение Private DNS (DoT).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         dnsList.forEach { d ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -272,11 +273,14 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                                     Text(d.name)
                                     Text(d.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Text(if (d.ms >= 0) "${d.ms} мс" else "—", color = if (d.ms in 0..14) AccentGreen else if (d.ms >= 0) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(if (d.ms >= 0) "${d.ms} мс" else "—", color = if (d.ms in 0..14) AccentGreen else if (d.ms >= 0) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    d.answered?.let { Text("$it/5 ответов", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                }
                             }
                         }
                         if (dnsError) Text("Не удалось выполнить замер DNS.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        if (!benching && dnsList.all { it.ms < 0 } && selectedDns == null) {
+                        if (dnsTried && !benching && dnsList.all { it.ms < 0 } && selectedDns == null) {
                             Text("Нет результатов. Возможные причины: нет мобильной сети, заряд ниже 20%, UDP/53 заблокирован или сервер недоступен.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(8.dp))
@@ -284,6 +288,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                             onClick = {
                                 benching = true
                                 dnsError = false
+                                dnsTried = true
                                 dnsList = DnsCatalog.servers
                                 selectedDns = null
                                 benchJob = scope.launch {

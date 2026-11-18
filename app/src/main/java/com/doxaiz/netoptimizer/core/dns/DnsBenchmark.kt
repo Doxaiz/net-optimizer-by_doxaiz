@@ -17,12 +17,12 @@ import java.net.DatagramSocket
 import java.net.InetSocketAddress
 
 /** Бесплатные DNS-серверы для бенчмарка */
-data class DnsServer(val name: String, val ip: String, val hint: String, val ms: Int = -1)
+data class DnsServer(val name: String, val ip: String, val hint: String, val ms: Int = -1, val answered: Int? = null)
 
 object DnsCatalog {
     val servers = listOf(
         DnsServer("Яндекс DNS", "77.88.8.8", "Публичный DNS"),
-        DnsServer("Cloudflare 1.1.1.1", "1.1.1.1", "DoH/DoT · шифрованный"),
+        DnsServer("Cloudflare 1.1.1.1", "1.1.1.1", "Поддерживает DoH/DoT"),
         DnsServer("AdGuard DNS", "94.140.14.14", "+ анти-реклама"),
         DnsServer("Google Public DNS", "8.8.8.8", "DoH/DoT"),
         DnsServer("Quad9", "9.9.9.9", "Защита от вредоносных доменов"),
@@ -66,7 +66,7 @@ class DnsBenchmark(private val context: android.content.Context) {
                 DnsCatalog.servers.map { server ->
                     async(Dispatchers.IO) {
                         val times = mutableListOf<Int>()
-                        repeat(5) {
+                        repeat(DnsSamples.ATTEMPTS) {
                             currentCoroutineContext().ensureActive()
                             if (!safe()) return@async server.copy(ms = -1)
                             val time = measureOnce(network, server.ip)
@@ -74,7 +74,8 @@ class DnsBenchmark(private val context: android.content.Context) {
                             if (!safe()) return@async server.copy(ms = -1)
                             if (time >= 0) times.add(time)
                         }
-                        server.copy(ms = if (times.size < 3) -1 else times.sorted()[times.size / 2])
+                        val summary = DnsSamples.summarize(times)
+                        server.copy(ms = summary.medianMs ?: -1, answered = summary.answered)
                     }
                 }.awaitAll()
             }
