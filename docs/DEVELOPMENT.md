@@ -13,7 +13,7 @@ gradle --no-daemon lintRelease
 
 Для подписанной release-сборки настройте вне репозитория переменные `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, затем выполните `gradle --no-daemon assembleRelease`. Не вставляйте фактические значения в Git, сообщения или логи.
 
-Workflow **Build APK** ожидает repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` и `ANDROID_KEY_PASSWORD`; при их отсутствии подписанная сборка останавливается. Для проверки конфигурации есть отдельный workflow с одноразовым тестовым ключом: такой APK **не предназначен для публикации**. Workflows тестирования не публикуют релиз автоматически.
+Workflow **Build APK** при push и pull request запускает тесты и собирает debug APK как артефакт для разработки. Debug-подпись отличается от release: такой APK не предназначен для публикации и обычно не обновит установленный release. Подписанная сборка запускается вручную через `workflow_dispatch` и ожидает repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` и `ANDROID_KEY_PASSWORD`; при их отсутствии она останавливается. Для проверки конфигурации есть отдельный workflow с одноразовым тестовым ключом: такой APK **не предназначен для публикации**. Workflows тестирования не публикуют релиз автоматически.
 
 ## Безопасность исходников
 
