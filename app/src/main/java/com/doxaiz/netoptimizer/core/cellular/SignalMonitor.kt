@@ -29,6 +29,7 @@ data class SignalState(
     val networkType: String = "—",
     val rsrp: Int = 0,          // dBm
     val observedAtElapsedMs: Long? = null, // polling completion, not necessarily modem sample time
+    val modemAtElapsedMs: Long? = null, // approximate CellInfo receipt time, since boot
     val rsrq: Int? = null,      // dB; null means unavailable
     val sinr: Int? = null,      // dB; null means unavailable
     val band: String = "—",
@@ -43,6 +44,13 @@ data class SignalState(
     val battery: BatterySnapshot? = null,
     val batteryObservedAtMs: Long? = null,
     val hasPermission: Boolean = false
+)
+
+/** Remove only cell-derived data; battery and permission state are independent. */
+fun SignalState.withoutCellData(): SignalState = copy(
+    rsrp = 0, rsrq = null, sinr = null, networkType = "—", band = "—", bandHint = "",
+    bandSource = null, channel = null, frequencyKhz = null, pci = null,
+    is5g = false, isLteA = false, neighbors = emptyList()
 )
 
 /**
@@ -114,7 +122,7 @@ class SignalMonitor(private val context: Context) {
             hasPermission = hasPermission, rsrp = 0, rsrq = null, sinr = null,
             band = "—", bandHint = "", bandSource = null, channel = null, frequencyKhz = null,
             pci = null, networkType = "—", is5g = false, isLteA = false, neighbors = emptyList(),
-            observedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+            observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(), modemAtElapsedMs = null
         )
     }
 
@@ -163,7 +171,7 @@ class SignalMonitor(private val context: Context) {
             val radio = RadioChannels.nr(id.nrarfcn, id.bands)
             _state.value = cur.copy(
                 rsrp = s.dbm.takeIf { it in -160..-30 } ?: 0,
-                observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
+                observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(), modemAtElapsedMs = nrInfo.timestampMillis,
                 rsrq = RadioMeasurements.nrRsrq(s.ssRsrq),
                 sinr = RadioMeasurements.nrSinr(s.ssSinr),
                 band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,
@@ -180,7 +188,7 @@ class SignalMonitor(private val context: Context) {
             val radio = RadioChannels.lte(id.earfcn, id.bands)
             _state.value = cur.copy(
                 rsrp = s.rsrp.takeIf { it in -160..-30 } ?: 0,
-                observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
+                observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(), modemAtElapsedMs = lteInfo.timestampMillis,
                 rsrq = RadioMeasurements.lteRsrq(s.rsrq),
                 sinr = RadioMeasurements.lteSinr(s.rssnr),
                 band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,

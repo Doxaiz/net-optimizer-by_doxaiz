@@ -9,6 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
+import com.doxaiz.netoptimizer.core.cellular.SignalFreshness
+import com.doxaiz.netoptimizer.core.cellular.SignalFreshnessStatus
 import com.doxaiz.netoptimizer.core.data.SessionEntity
 import com.doxaiz.netoptimizer.core.data.SessionRepository
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
@@ -226,7 +228,7 @@ class SessionController(
         }
     }
 
-    fun stopAndSave() {
+    fun stopAndSave(foregroundSinceMs: Long?) {
         if (state.phase == SessionPhase.RUNNING) pause()
         if (state.phase != SessionPhase.PAUSED) return
         val snapshot = state
@@ -236,6 +238,8 @@ class SessionController(
         }
         state = state.copy(phase = SessionPhase.SAVING, message = "Сохраняем…")
         val signal = monitor.state.value
+        // Stored rows have no timestamp/quality flag: do not turn uncertain cell data into facts.
+        val cellFresh = SignalFreshness.status(signal.observedAtElapsedMs, signal.modemAtElapsedMs, foregroundSinceMs, SystemClock.elapsedRealtime()) == SignalFreshnessStatus.FRESH
         scope.launch {
             var saved = false
             try {
@@ -245,7 +249,7 @@ class SessionController(
                     mode = snapshot.mode, durationSec = snapshot.seconds,
                     avgPingMs = snapshot.progress.averageLatency(), maxPingMs = snapshot.progress.maxLatency,
                     lossPercent = snapshot.progress.failedPercent(), avgSpeedMbps = -1.0,
-                    dropsCount = -1, avgRsrp = signal.rsrp, band = signal.band,
+                    dropsCount = -1, avgRsrp = if (cellFresh) signal.rsrp else 0, band = if (cellFresh) signal.band else "—",
                     dnsName = "Не определён", operator = signal.operator,
                     pingHistory = snapshot.progress.history.joinToString(",")
                 ))

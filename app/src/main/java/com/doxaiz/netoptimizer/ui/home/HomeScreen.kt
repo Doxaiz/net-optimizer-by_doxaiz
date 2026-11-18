@@ -17,6 +17,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
+import com.doxaiz.netoptimizer.core.cellular.SignalFreshness
+import com.doxaiz.netoptimizer.core.cellular.SignalFreshnessStatus
+import com.doxaiz.netoptimizer.core.cellular.withoutCellData
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
 import com.doxaiz.netoptimizer.core.dns.DnsServer
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
@@ -42,10 +45,12 @@ enum class WorkMode(val label: String, val color: Color) {
 }
 
 @Composable
-fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
+fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val signal by monitor.state.collectAsState()
+    val rawSignal by monitor.state.collectAsState()
+    val freshness = SignalFreshness.status(rawSignal.observedAtElapsedMs, rawSignal.modemAtElapsedMs, foregroundSinceMs, maxOf(nowMs, SystemClock.elapsedRealtime()))
+    val signal = if (SignalFreshness.canDisplay(freshness)) rawSignal else rawSignal.withoutCellData()
     var mode by remember { mutableStateOf(OnboardingPrefs.loadMode(context)?.let { runCatching { WorkMode.valueOf(it) }.getOrNull() } ?: WorkMode.NORMAL) }
     var ping by remember { mutableStateOf<Int?>(null) }
     var jitter by remember { mutableStateOf<Int?>(null) }
@@ -159,7 +164,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricCard("ПИНГ · TCP", ping?.let { "$it мс" } ?: "—", ping?.let { QualityText.ping(it) + (jitter?.let { value -> " · джиттер $value мс" } ?: " · джиттер недоступен") } ?: "Нет замера", Modifier.weight(1f), ping?.let { if (it <= 70) AccentGreen else MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
-                MetricCard("СИГНАЛ · RSRP", if (validSignal) "${signal.rsrp} dBm" else "—", if (validSignal) QualityText.signal(signal.rsrp) else "Нет данных о соте", Modifier.weight(1f), if (validSignal && signal.rsrp >= -100) AccentGreen else MaterialTheme.colorScheme.onSurfaceVariant)
+                MetricCard("СИГНАЛ · RSRP", if (validSignal) "${signal.rsrp} dBm" else "—", if (validSignal) QualityText.signal(signal.rsrp) + (if (freshness == SignalFreshnessStatus.UNKNOWN_MODEM_TIME) " · возраст неизвестен" else "") else if (freshness == SignalFreshnessStatus.STALE_MODEM) "Данные модема устарели" else "Нет свежих данных о соте", Modifier.weight(1f), if (validSignal && signal.rsrp >= -100) AccentGreen else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item {

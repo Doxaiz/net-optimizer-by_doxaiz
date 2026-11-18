@@ -32,6 +32,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.cellular.CarrierProfiles
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
+import com.doxaiz.netoptimizer.core.cellular.SignalFreshness
+import com.doxaiz.netoptimizer.core.cellular.SignalFreshnessStatus
+import com.doxaiz.netoptimizer.core.cellular.withoutCellData
 import com.doxaiz.netoptimizer.core.cellular.SignalHistory
 import com.doxaiz.netoptimizer.core.cellular.SignalObservation
 import com.doxaiz.netoptimizer.core.cellular.SignalState
@@ -76,10 +79,10 @@ private enum class ToolsSection(val label: String) {
 }
 
 @Composable
-fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
+fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val signal by monitor.state.collectAsState()
+    val rawSignal by monitor.state.collectAsState()
 
     var section by rememberSaveable { mutableStateOf(ToolsSection.SIGNAL) }
     var soundOn by remember { mutableStateOf(false) }
@@ -115,6 +118,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var signalHistory by remember { mutableStateOf<List<SignalObservation>>(emptyList()) }
     var signalClock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    val freshness = SignalFreshness.status(rawSignal.observedAtElapsedMs, rawSignal.modemAtElapsedMs, foregroundSinceMs, maxOf(nowMs, signalClock, SystemClock.elapsedRealtime()))
+    val signal = if (SignalFreshness.canDisplay(freshness)) rawSignal else rawSignal.withoutCellData()
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) foreground = true
@@ -138,14 +143,16 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             keepAliveEngine.stop()
         }
     }
-    LaunchedEffect(monitor, section, foreground) {
+    LaunchedEffect(monitor, section, foreground, foregroundSinceMs) {
         signalHistory = emptyList()
-        if (foreground && section == ToolsSection.SIGNAL) {
+        if (foreground && foregroundSinceMs != null && section == ToolsSection.SIGNAL) {
             val openedAt = SystemClock.elapsedRealtime()
             monitor.state.collect { reading ->
                 val at = reading.observedAtElapsedMs
                 if (at != null && at >= openedAt) {
-                    signalHistory = SignalHistory.append(signalHistory, at, reading.rsrp, reading.networkType)
+                    val status = SignalFreshness.status(at, reading.modemAtElapsedMs, foregroundSinceMs, SystemClock.elapsedRealtime())
+                    val value = if (SignalFreshness.canDisplay(status)) reading.rsrp else 0
+                    signalHistory = SignalHistory.append(signalHistory, at, value, reading.networkType)
                 }
             }
         }
@@ -194,6 +201,13 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         Spacer(Modifier.height(8.dp))
                         RadarCanvas(rsrp = signal.rsrp, soundOn = soundOn, vibOn = vibOn)
                         Text(if (signal.rsrp in -160..-30) "${signal.rsrp} dBm" else "Нет данных о сигнале", style = MaterialTheme.typography.headlineSmall)
+                        val freshnessText = when (freshness) {
+                            SignalFreshnessStatus.STALE_MODEM -> "Сведения от модема старше 30 секунд. Показания скрыты, звук и вибрация отключены до обновления."
+                            SignalFreshnessStatus.STALE_POLL -> "Нет свежего опроса Android. Показания скрыты, звук и вибрация отключены до обновления."
+                            SignalFreshnessStatus.UNKNOWN_MODEM_TIME -> if (signal.networkType != "—") "Время получения от модема неизвестно: показания могут быть устаревшими." else null
+                            SignalFreshnessStatus.FRESH -> "Время данных модема приблизительное; актуальность не гарантирована."
+                        }
+                        freshnessText?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Spacer(Modifier.height(8.dp))
                         CurrentCellDetails(signal)
                         if (signal.neighbors.isNotEmpty()) {
@@ -560,7 +574,7 @@ private fun SignalHistoryCard(points: List<SignalObservation>, nowMs: Long) {
                 }
                 Text("Прошлое ← → сейчас · сверху −30, снизу −160 дБм. Разрывы — нет данных, большой перерыв или смена 4G/5G.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("Снимки опроса примерно раз в 3 с, до 2 минут и только пока открыт этот раздел. Android может повторять старые данные; при переключении сот значения могут меняться. При выходе история очищается.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Снимки опроса примерно раз в 3 с, до 2 минут и только пока открыт этот раздел. Одна и та же запись модема может повторяться; устаревшие данные не рисуются, а если время модема неизвестно — свежесть не гарантирована. При выходе история очищается.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -592,6 +606,8 @@ private fun CurrentCellDetails(signal: SignalState) {
         Text("Текущая сота", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!signal.hasPermission) {
             Text("Разрешите доступ к местоположению, чтобы увидеть данные соты.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else if (signal.networkType == "—") {
+            Text("Нет доступных свежих данных 4G или 5G.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Text("${signal.operator} · ${signal.networkType}", style = MaterialTheme.typography.bodyMedium)
             val source = when (signal.bandSource) {
@@ -718,6 +734,7 @@ private fun PingDetails(result: PingResult) {
 @Composable
 private fun RadarCanvas(rsrp: Int, soundOn: Boolean = true, vibOn: Boolean = false) {
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     // Плавная развёртка луча через infiniteTransition (60 fps, без ручных delay-циклов)
     val transition = rememberInfiniteTransition(label = "radar")
     val sweep by transition.animateFloat(
@@ -741,8 +758,10 @@ private fun RadarCanvas(rsrp: Int, soundOn: Boolean = true, vibOn: Boolean = fal
     LaunchedEffect(rsrp, soundOn, vibOn) {
         while (true) {
             val strength = ((rsrp + 120f) / 50f).coerceIn(0f, 1f)
-            if (soundOn && rsrp in -160..-30) Beeper.beep(strength)
-            if (vibOn && rsrp in -75..-30) Beeper.vibrate(context) // вибрация на максимуме
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                if (soundOn && rsrp in -160..-30) Beeper.beep(strength)
+                if (vibOn && rsrp in -75..-30) Beeper.vibrate(context) // вибрация на максимуме
+            }
             kotlinx.coroutines.delay(500)
         }
     }

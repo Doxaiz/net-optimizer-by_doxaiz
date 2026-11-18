@@ -47,7 +47,7 @@ private sealed interface HistoryResult {
 }
 
 @Composable
-fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController) {
+fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController, foregroundSinceMs: Long?) {
     val context = LocalContext.current
     val repo = remember { (context.applicationContext as DoxaizApp).sessionRepository }
     var historyReload by remember { mutableIntStateOf(0) }
@@ -132,14 +132,14 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
                                 controller.startOrResume(mode)
                             }, modifier = Modifier.fillMaxWidth()) { Text(if (state.phase == SessionPhase.IDLE) "Начать сессию" else "Продолжить") }
                             if (state.phase == SessionPhase.PAUSED) {
-                                OutlinedButton(onClick = controller::stopAndSave, modifier = Modifier.fillMaxWidth()) { Text("Остановить и сохранить") }
+                                OutlinedButton(onClick = { controller.stopAndSave(foregroundSinceMs) }, modifier = Modifier.fillMaxWidth()) { Text("Остановить и сохранить") }
                                 TextButton(onClick = { confirmDiscard = true }, modifier = Modifier.fillMaxWidth()) { Text("Удалить черновик") }
                             }
                         }
                         SessionPhase.RUNNING -> {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { controller.pause() }, modifier = Modifier.weight(1f)) { Text("Пауза") }
-                                Button(onClick = controller::stopAndSave, modifier = Modifier.weight(1f)) { Text("Сохранить") }
+                                Button(onClick = { controller.stopAndSave(foregroundSinceMs) }, modifier = Modifier.weight(1f)) { Text("Сохранить") }
                             }
                         }
                         SessionPhase.RESTORING, SessionPhase.SAVING -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -165,7 +165,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController)
                     SessionMetric("Неудачные TCP-подключения", percent(detail.lossPercent), SessionInsights.failureLevel(detail.lossPercent), "Доля неудачных попыток подключения к сайту, не потери пакетов в игре.")
                     Text("Наибольшая средняя задержка серии: ${ms(detail.maxPingMs)} · Длительность: ${SessionInsights.formatDuration(detail.durationSec)}", style = MaterialTheme.typography.bodySmall)
                     val signal = if (detail.avgRsrp in -160..-30) "${detail.avgRsrp} дБм" else "нет данных"
-                    Text("При сохранении: ${detail.operator} · сигнал $signal · диапазон ${detail.band}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("При сохранении: ${detail.operator} · сигнал $signal · диапазон ${detail.band}. Это не средний сигнал сессии; старые записи могут содержать устаревшие показания.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("ГРАФИК TCP-ЗАДЕРЖКИ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     PingGraph(SessionInsights.historyValues(detail.pingHistory))
                     Text("Последние до 120 успешных серий: каждая точка — среднее успешных подключений. Неудачные серии и интервалы пауз на графике не показаны.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
