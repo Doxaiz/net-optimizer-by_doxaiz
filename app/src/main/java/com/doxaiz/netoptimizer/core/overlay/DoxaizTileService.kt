@@ -18,6 +18,8 @@ class DoxaizTileService : TileService() {
         }
     }
 
+    // The deprecated Intent overload is used only below API 34; API 34+ uses PendingIntent.
+    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
