@@ -39,6 +39,8 @@ import com.doxaiz.netoptimizer.core.traffic.LoadComparison
 import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
 import com.doxaiz.netoptimizer.core.traffic.LoadPhase
 import com.doxaiz.netoptimizer.core.traffic.LoadSample
+import com.doxaiz.netoptimizer.core.traffic.DataSaver
+import com.doxaiz.netoptimizer.core.traffic.DataSaverStatus
 import com.doxaiz.netoptimizer.core.traffic.saturatedAdd
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
@@ -64,6 +66,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
     val optimizer = remember(monitor, scope) { LoadOptimizationController(context.applicationContext, scope) }
+    val dataSaver = remember(context) { DataSaver(context.applicationContext) }
+    var dataSaverStatus by remember(dataSaver) { mutableStateOf(dataSaver.status()) }
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
@@ -81,10 +85,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
     var stopJob by remember { mutableStateOf<Job?>(null) }
     var stopping by remember { mutableStateOf(false) }
 
-    DisposableEffect(lifecycle, optimizer) {
+    DisposableEffect(lifecycle, optimizer, dataSaver) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> { foreground = true; optimizer.onStart() }
+                Lifecycle.Event.ON_START -> { foreground = true; dataSaverStatus = dataSaver.status(); optimizer.onStart() }
                 Lifecycle.Event.ON_STOP -> {
                     foreground = false
                     optimizer.onStop()
@@ -226,7 +230,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
             Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
-        item { LoadOptimizationCard(optimizer, details) }
+        item { LoadOptimizationCard(optimizer, details, dataSaverStatus, dataSaver::openSettings) }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -332,8 +336,9 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
 }
 
 @Composable
-private fun LoadOptimizationCard(controller: LoadOptimizationController, details: Boolean) {
+private fun LoadOptimizationCard(controller: LoadOptimizationController, details: Boolean, dataSaverStatus: DataSaverStatus, openDataSaver: () -> Boolean) {
     val state = controller.state
+    var settingsUnavailable by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("СНИЗИТЬ НАГРУЗКУ НА СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -371,6 +376,17 @@ private fun LoadOptimizationCard(controller: LoadOptimizationController, details
                 LoadPhase.READY, LoadPhase.RESULT -> Button(onClick = controller::measureAfter, modifier = Modifier.fillMaxWidth()) { Text("Измерить после изменений") }
             }
             if (state.phase != LoadPhase.IDLE) TextButton(onClick = { controller.clear() }) { Text(if (state.phase == LoadPhase.BASELINE || state.phase == LoadPhase.CHECKING) "Отменить" else "Начать заново") }
+            HorizontalDivider()
+            Text("Экономия трафика Android: " + when (dataSaverStatus) {
+                DataSaverStatus.OFF -> "выключена"
+                DataSaverStatus.ON -> "включена"
+                DataSaverStatus.ON_APP_EXEMPT -> "включена (это приложение в исключениях)"
+                DataSaverStatus.UNKNOWN -> "состояние неизвестно"
+            }, style = MaterialTheme.typography.titleSmall)
+            Text("Может ограничить фоновые загрузки на лимитных сетях и освободить канал. Уведомления и синхронизация могут задерживаться; исключения настраиваются в Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = { settingsUnavailable = !openDataSaver() }, enabled = state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) { Text("Настроить экономию трафика") }
+            if (settingsUnavailable) Text("Не удалось открыть настройки. Найдите «Экономия трафика» в настройках Android вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Text("Включите или выключите вручную в настройках. Если открылась общая страница, найдите «Экономия трафика». Настройка может действовать и на лимитном Wi‑Fi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Проверяется задержка до сайта Яндекса, не скорость и не пинг игры. Улучшение не гарантировано.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (details) {
                 Text("Шесть TCP-подключений к одному IP; требуется минимум четыре ответа. При USB-модеме проверьте загрузки на ПК. Остановка приложений доступна ниже после подтверждения и влияет на всё приложение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
