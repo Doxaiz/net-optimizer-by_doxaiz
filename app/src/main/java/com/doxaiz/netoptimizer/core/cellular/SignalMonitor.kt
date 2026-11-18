@@ -26,6 +26,7 @@ data class SignalState(
     val operator: String = "—",
     val networkType: String = "—",
     val rsrp: Int = 0,          // dBm
+    val observedAtElapsedMs: Long? = null, // polling completion, not necessarily modem sample time
     val rsrq: Int? = null,      // dB; null means unavailable
     val sinr: Int? = null,      // dB; null means unavailable
     val band: String = "—",
@@ -114,7 +115,8 @@ class SignalMonitor(private val context: Context) {
         _state.value = _state.value.copy(
             hasPermission = hasPermission, rsrp = 0, rsrq = null, sinr = null,
             band = "—", bandHint = "", bandSource = null, channel = null, frequencyKhz = null,
-            pci = null, networkType = "—", is5g = false, isLteA = false, neighbors = emptyList()
+            pci = null, networkType = "—", is5g = false, isLteA = false, neighbors = emptyList(),
+            observedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
         )
     }
 
@@ -163,6 +165,7 @@ class SignalMonitor(private val context: Context) {
             val radio = RadioChannels.nr(id.nrarfcn, id.bands)
             _state.value = cur.copy(
                 rsrp = s.dbm.takeIf { it in -160..-30 } ?: 0,
+                observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
                 rsrq = s.ssRsrq.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
                 sinr = s.ssSinr.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
                 band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,
@@ -179,6 +182,7 @@ class SignalMonitor(private val context: Context) {
             val radio = RadioChannels.lte(id.earfcn, id.bands)
             _state.value = cur.copy(
                 rsrp = s.rsrp.takeIf { it in -160..-30 } ?: 0,
+                observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
                 rsrq = s.rsrq.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
                 sinr = s.rssnr.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
                 band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,

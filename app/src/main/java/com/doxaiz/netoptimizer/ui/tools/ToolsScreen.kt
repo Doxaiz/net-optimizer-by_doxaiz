@@ -32,10 +32,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.cellular.CarrierProfiles
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
+import com.doxaiz.netoptimizer.core.cellular.SignalHistory
+import com.doxaiz.netoptimizer.core.cellular.SignalObservation
 import com.doxaiz.netoptimizer.core.cellular.SignalState
 import com.doxaiz.netoptimizer.core.cellular.RadioChannels
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.SystemClock
 import com.doxaiz.netoptimizer.core.dns.DnsBenchmark
 import com.doxaiz.netoptimizer.core.dns.PrivateDns
 import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
@@ -60,6 +63,8 @@ import com.doxaiz.netoptimizer.ui.theme.AccentRed
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -103,9 +108,15 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     val pingTester = remember { PingTester(context) }
     val speedTester = remember { SpeedTester(context.applicationContext) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var signalHistory by remember { mutableStateOf<List<SignalObservation>>(emptyList()) }
+    var signalClock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) foreground = true
             if (event == Lifecycle.Event.ON_STOP) {
+                foreground = false
+                signalHistory = emptyList()
                 speedJob?.cancel()
                 benchJob?.cancel()
                 pingJob?.cancel()
@@ -121,6 +132,27 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             pingJob?.cancel()
             customJob?.cancel()
             keepAliveEngine.stop()
+        }
+    }
+    LaunchedEffect(monitor, section, foreground) {
+        signalHistory = emptyList()
+        if (foreground && section == ToolsSection.SIGNAL) {
+            val openedAt = SystemClock.elapsedRealtime()
+            monitor.state.collect { reading ->
+                val at = reading.observedAtElapsedMs
+                if (at != null && at >= openedAt) {
+                    signalHistory = SignalHistory.append(signalHistory, at, reading.rsrp, reading.networkType)
+                }
+            }
+        }
+    }
+    LaunchedEffect(section, foreground) {
+        if (foreground && section == ToolsSection.SIGNAL) {
+            while (isActive) {
+                signalClock = SystemClock.elapsedRealtime()
+                signalHistory = SignalHistory.trim(signalHistory, signalClock)
+                delay(1_000)
+            }
         }
     }
     val listState = rememberLazyListState()
@@ -175,6 +207,9 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                         }
                     }
                 }
+            }
+            if (section == ToolsSection.SIGNAL) item {
+                SignalHistoryCard(signalHistory, signalClock)
             }
             // Стабилизация 4G/5G
             if (section == ToolsSection.SIGNAL) item {
@@ -433,6 +468,44 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SignalHistoryCard(points: List<SignalObservation>, nowMs: Long) {
+    val valid = points.mapNotNull { it.rsrp }
+    val newest = points.lastOrNull()
+    val ageSeconds = newest?.let { ((nowMs - it.atMs).coerceAtLeast(0) / 1000) }
+    val lineColor = MaterialTheme.colorScheme.primary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("ДИНАМИКА СИГНАЛА", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (valid.isEmpty()) {
+                Text("Ожидаем данные LTE или 5G от телефона.", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Text("За видимый период: ${valid.minOrNull()}…${valid.maxOrNull()} дБм", style = MaterialTheme.typography.titleSmall, color = lineColor)
+                Text("Последний опрос: ${ageSeconds ?: 0} с назад${if (newest?.rsrp == null) " · нет данных" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Canvas(Modifier.fillMaxWidth().height(96.dp)) {
+                    val earliest = points.firstOrNull()?.atMs ?: nowMs
+                    val span = (nowMs - earliest).coerceIn(30_000L, SignalHistory.WINDOW_MS).toFloat()
+                    fun x(point: SignalObservation) = (size.width * (1f - (nowMs - point.atMs).toFloat() / span)).coerceIn(0f, size.width)
+                    fun y(value: Int) = size.height * ((-30f - value) / 130f)
+                    drawLine(gridColor, Offset(0f, 0f), Offset(size.width, 0f), 1f)
+                    drawLine(gridColor, Offset(0f, size.height), Offset(size.width, size.height), 1f)
+                    points.zipWithNext().forEach { (first, second) ->
+                        if (SignalHistory.canConnect(first, second)) {
+                            drawLine(lineColor, Offset(x(first), y(first.rsrp!!)), Offset(x(second), y(second.rsrp!!)), 3f)
+                        }
+                    }
+                    points.forEach { point ->
+                        point.rsrp?.let { drawCircle(lineColor, radius = 3f, center = Offset(x(point), y(it))) }
+                    }
+                }
+                Text("Прошлое ← → сейчас · сверху −30, снизу −160 дБм. Разрывы — нет данных, большой перерыв или смена 4G/5G.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("Снимки опроса примерно раз в 3 с, до 2 минут и только пока открыт этот раздел. Android может повторять старые данные; при переключении сот значения могут меняться. При выходе история очищается.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
