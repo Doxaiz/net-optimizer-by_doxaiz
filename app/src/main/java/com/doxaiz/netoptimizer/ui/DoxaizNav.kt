@@ -49,6 +49,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.doxaiz.netoptimizer.DoxaizApp
 import com.doxaiz.netoptimizer.core.session.SessionController
+import com.doxaiz.netoptimizer.core.util.InterfaceMode
+import com.doxaiz.netoptimizer.core.util.OnboardingPrefs
 import com.doxaiz.netoptimizer.core.session.SessionPhase
 import com.doxaiz.netoptimizer.core.cellular.SignalMonitor
 import com.doxaiz.netoptimizer.core.net.BatteryHealth
@@ -57,6 +59,7 @@ import com.doxaiz.netoptimizer.core.net.BatteryWarning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import com.doxaiz.netoptimizer.ui.home.HomeScreen
+import com.doxaiz.netoptimizer.ui.onboarding.OnboardingScreen
 import com.doxaiz.netoptimizer.ui.sessions.SessionsScreen
 import com.doxaiz.netoptimizer.ui.settings.SettingsScreen
 import com.doxaiz.netoptimizer.ui.theme.DoxaizThemeKind
@@ -75,7 +78,8 @@ private val tabs = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
+fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit, interfaceMode: InterfaceMode, onInterfaceModeChange: (InterfaceMode) -> Unit) {
+    var setupOpen by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -113,6 +117,13 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
             monitor.stop()
             session.dispose()
         }
+    }
+    if (setupOpen) {
+        OnboardingScreen(onDone = {
+            onInterfaceModeChange(OnboardingPrefs.loadInterfaceMode(context) ?: InterfaceMode.SIMPLE)
+            setupOpen = false
+        })
+        return
     }
     Scaffold(
         topBar = {
@@ -164,17 +175,24 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit) {
             label = "tabTransition"
         ) { tab ->
             when (tab) {
-                0 -> HomeScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock, onOptimize = { selected = 2 })
-                1 -> ToolsScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock)
-                2 -> TrafficScreen(modifier = Modifier.padding(padding))
+                0 -> HomeScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock, onOptimize = { selected = 2 }, expert = interfaceMode == InterfaceMode.EXPERT)
+                1 -> ToolsScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock, expert = interfaceMode == InterfaceMode.EXPERT)
+                2 -> TrafficScreen(modifier = Modifier.padding(padding), expert = interfaceMode == InterfaceMode.EXPERT)
                 3 -> SessionsScreen(
                     modifier = Modifier.padding(padding),
                     controller = session,
-                    foregroundSinceMs = foregroundSince
+                    foregroundSinceMs = foregroundSince,
+                    expert = interfaceMode == InterfaceMode.EXPERT
                 )
                 4 -> SettingsScreen(
                     modifier = Modifier.padding(padding),
-                    onThemeChange = onThemeChange
+                    onThemeChange = onThemeChange,
+                    interfaceMode = interfaceMode,
+                    onInterfaceModeChange = onInterfaceModeChange,
+                    onOpenSetup = {
+                        session.pause("Сессия на паузе: открыта подготовка. Продолжите или сохраните её вручную.")
+                        setupOpen = true
+                    }
                 )
             }
         }

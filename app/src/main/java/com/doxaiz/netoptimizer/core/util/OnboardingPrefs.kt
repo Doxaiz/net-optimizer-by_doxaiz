@@ -14,6 +14,15 @@ object OnboardingPrefs {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY, true).apply()
     }
 
+    private const val KEY_INTERFACE = "interface_mode"
+
+    fun loadInterfaceMode(context: Context): InterfaceMode? =
+        InterfaceMode.fromStored(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_INTERFACE, null))
+
+    fun saveInterfaceMode(context: Context, mode: InterfaceMode) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_INTERFACE, mode.name).apply()
+    }
+
     private const val KEY_MODE = "start_mode"
 
     fun saveMode(context: Context, modeName: String) {

@@ -80,6 +80,18 @@ object ShizukuManager {
         }
     }
 
+    /** Open the installed app if possible, otherwise its official store or GitHub page. */
+    fun openAppOrStore(context: Context): Boolean {
+        val installed = try { context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api") } catch (_: Exception) { null }
+        val intents = listOfNotNull(installed,
+            Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=moe.shizuku.privileged.api")),
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/RikkaApps/Shizuku")))
+        for (intent in intents) {
+            try { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true } catch (_: Exception) { }
+        }
+        return false
+    }
+
     /** Запросить разрешение Shizuku (нужен запущенный Shizuku) */
     fun requestPermission(requestCode: Int = 1001) {
         try {

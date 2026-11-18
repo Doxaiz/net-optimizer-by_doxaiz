@@ -11,12 +11,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import com.doxaiz.netoptimizer.core.util.ThemePrefs
+import com.doxaiz.netoptimizer.core.util.InterfaceMode
 import com.doxaiz.netoptimizer.ui.theme.DoxaizThemeKind
 
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
-    onThemeChange: (DoxaizThemeKind) -> Unit
+    onThemeChange: (DoxaizThemeKind) -> Unit,
+    interfaceMode: InterfaceMode,
+    onInterfaceModeChange: (InterfaceMode) -> Unit,
+    onOpenSetup: () -> Unit
 ) {
     val context = LocalContext.current
     var theme by remember { mutableStateOf(ThemePrefs.load(context)) }
@@ -38,6 +42,20 @@ fun SettingsScreen(
         item {
             Text("НАСТРОЙКИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("Настройки Doxaiz", style = MaterialTheme.typography.headlineSmall)
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Вид приложения", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = interfaceMode == InterfaceMode.SIMPLE, onClick = { onInterfaceModeChange(InterfaceMode.SIMPLE) }, label = { Text("Обычный") })
+                        FilterChip(selected = interfaceMode == InterfaceMode.EXPERT, onClick = { onInterfaceModeChange(InterfaceMode.EXPERT) }, label = { Text("Эксперт") })
+                    }
+                    Text(if (interfaceMode == InterfaceMode.SIMPLE) "Основные действия видны сразу, подробности можно раскрыть на каждом экране." else "Все доступные показатели и инструменты видны сразу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = onOpenSetup, modifier = Modifier.fillMaxWidth()) { Text("Подготовка и доступы") }
+                    Text("Можно повторить настройку; активная сессия перейдёт на паузу. Данные истории сохранятся.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -64,7 +82,7 @@ fun SettingsScreen(
                 }
             }
         }
-        item {
+        if (interfaceMode == InterfaceMode.EXPERT) item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Фоновые функции", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -72,7 +90,7 @@ fun SettingsScreen(
                 }
             }
         }
-        item {
+        if (interfaceMode == InterfaceMode.EXPERT) item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Доступ к системе · Shizuku", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -114,7 +132,7 @@ fun SettingsScreen(
                 }
             }
         }
-        item {
+        if (interfaceMode == InterfaceMode.EXPERT) item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Разрешения", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)

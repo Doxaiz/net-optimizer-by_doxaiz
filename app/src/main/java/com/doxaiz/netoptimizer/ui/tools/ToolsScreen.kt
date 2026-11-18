@@ -79,12 +79,17 @@ private enum class ToolsSection(val label: String) {
 }
 
 @Composable
-fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long) {
+fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long, expert: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val rawSignal by monitor.state.collectAsState()
 
     var section by rememberSaveable { mutableStateOf(ToolsSection.SIGNAL) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val details = expert || expanded
+    LaunchedEffect(details) {
+        if (!details && section != ToolsSection.SIGNAL && section != ToolsSection.TESTS) section = ToolsSection.SIGNAL
+    }
     var soundOn by remember { mutableStateOf(false) }
     var vibOn by remember { mutableStateOf(false) }
     var radioError by remember { mutableStateOf(false) }
@@ -115,6 +120,16 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     val bench = remember { DnsBenchmark(context) }
     val keepAliveEngine = remember { KeepAliveEngine(context.applicationContext) }
     val keepAliveState by keepAliveEngine.state.collectAsState()
+    LaunchedEffect(details) {
+        if (!details) {
+            soundOn = false
+            vibOn = false
+            keepAliveEngine.stop()
+            benchJob?.cancel()
+            pingJob?.cancel()
+            customJob?.cancel()
+        }
+    }
     val pingTester = remember { PingTester(context) }
     val speedTester = remember { SpeedTester(context.applicationContext) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -206,10 +221,14 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            ToolsSection.entries.forEach { item ->
+            (if (details) ToolsSection.entries else listOf(ToolsSection.SIGNAL, ToolsSection.TESTS)).forEach { item ->
                 FilterChip(selected = section == item, onClick = { section = item }, label = { Text(item.label) })
             }
         }
+        if (!expert) TextButton(onClick = {
+            expanded = !expanded
+            if (!expanded && section != ToolsSection.SIGNAL && section != ToolsSection.TESTS) section = ToolsSection.SIGNAL
+        }) { Text(if (expanded) "Скрыть дополнительные инструменты" else "Показать дополнительные инструменты") }
         Spacer(Modifier.height(4.dp))
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // Радар
@@ -228,31 +247,31 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                         }
                         freshnessText?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Spacer(Modifier.height(8.dp))
-                        CurrentCellDetails(signal)
-                        if (signal.neighbors.isNotEmpty()) {
+                        if (details) CurrentCellDetails(signal)
+                        if (details && signal.neighbors.isNotEmpty()) {
                             Text(
                                 "Соседние соты: " + signal.neighbors.joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text("Кэш Android читается примерно раз в 3 с; обновление у модема запрашивается не чаще 15 с при заряде от 20%. Android может ограничить запрос или вернуть старые данные. Расположение сот не определяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (details) Text("Кэш Android читается примерно раз в 3 с; обновление у модема запрашивается не чаще 15 с при заряде от 20%. Android может ограничить запрос или вернуть старые данные. Расположение сот не определяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (details) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(selected = soundOn, onClick = { soundOn = !soundOn }, label = { Text("🔊 Звук") })
                             FilterChip(selected = vibOn, onClick = { vibOn = !vibOn }, label = { Text("📳 Вибрация") })
                         }
                     }
                 }
             }
-            if (section == ToolsSection.SIGNAL) item {
+            if (section == ToolsSection.SIGNAL && details) item {
                 SignalHistoryCard(signalHistory, signalClock)
             }
             if (section == ToolsSection.SIGNAL) item {
                 BatteryStatusCard(signal, maxOf(signalClock, SystemClock.elapsedRealtime()))
             }
             // Стабилизация 4G/5G
-            if (section == ToolsSection.SIGNAL) item {
+            if (section == ToolsSection.SIGNAL && details) item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Стабилизация 4G / 5G", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -411,7 +430,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                     }
                 }
             }
-            if (section == ToolsSection.TESTS) item {
+            if (section == ToolsSection.TESTS && details) item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Своя цель", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -453,7 +472,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                 }
             }
             // Пинг игр
-            if (section == ToolsSection.TESTS) item {
+            if (section == ToolsSection.TESTS && details) item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("TCP-задержка сайтов игр и сервисов (не игровых серверов)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)

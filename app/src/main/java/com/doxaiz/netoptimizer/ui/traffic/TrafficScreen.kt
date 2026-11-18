@@ -56,7 +56,9 @@ import java.util.Locale
 private class StopHalted(message: String) : Exception(message)
 
 @Composable
-fun TrafficScreen(modifier: Modifier = Modifier) {
+fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val details = expert || expanded
     val context = LocalContext.current
     val monitor = remember { TrafficMonitor(context.applicationContext) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -222,13 +224,14 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
     LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
             Spacer(Modifier.height(8.dp))
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("Текущая скорость телефона", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (rate != null) "↓ ${formatRate(rate!!.rxBytesPerSecond)}  ·  ↑ ${formatRate(rate!!.txBytesPerSecond)}" else "Нет данных", style = MaterialTheme.typography.titleMedium, color = if (rate != null) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Общие счётчики мобильных интерфейсов Android, не скорость отдельных приложений. Первое значение появляется после двух снимков; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (history.size >= 2) {
+                    if (details && history.size >= 2) {
                         TrafficGraph(history)
                         Text("Приём — голубой · отдача — фиолетовый; последние до 30 снимков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -268,7 +271,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
-        item {
+        if (details) item {
             Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("all" to "Все", "white" to "Белый список").forEach { (key, label) ->
                     FilterChip(selected = filter == key, onClick = { filter = key }, label = { Text(label) })
@@ -294,7 +297,15 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
                 Text("Защищённых записей с расходом за выбранный период нет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        items(shown, key = { it.uid }) { app ->
+        items(if (details) shown else summary?.apps.orEmpty(), key = { it.uid }) { app ->
+            if (!details) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(app.label, style = MaterialTheme.typography.titleSmall)
+                        Text("Израсходовано: ${formatBytes(app.totalBytes)}", color = AccentCyan)
+                    }
+                }
+            } else {
             val userProtected = app.packageNames.singleOrNull()?.let { it in protectedApps } == true
             val pkg = app.packageNames.singleOrNull()
             TrafficRow(app, userProtected, selected = pkg != null && pkg in selectedApps, enabled = !stopping,
@@ -313,6 +324,7 @@ fun TrafficScreen(modifier: Modifier = Modifier) {
                     }
                 },
                 onStop = { pendingStop = app })
+            }
         }
     }
 }

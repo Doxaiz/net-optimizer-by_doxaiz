@@ -47,7 +47,9 @@ private sealed interface HistoryResult {
 }
 
 @Composable
-fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController, foregroundSinceMs: Long?) {
+fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController, foregroundSinceMs: Long?, expert: Boolean) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val details = expert || expanded
     val context = LocalContext.current
     val repo = remember { (context.applicationContext as DoxaizApp).sessionRepository }
     var historyReload by remember { mutableIntStateOf(0) }
@@ -109,6 +111,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
         item {
             Text("СЕССИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("История соединения", style = MaterialTheme.typography.headlineSmall)
+            if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
         item {
             Card(Modifier.fillMaxWidth()) {
@@ -123,7 +126,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
                     }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("%02d:%02d".format(state.seconds / 60, state.seconds % 60), style = MaterialTheme.typography.headlineMedium)
                     Text("TCP-задержка до Яндекса · успешных серий: ${state.progress.sampleCount}. Можно переключать вкладки; при сворачивании или заряде ниже 20% сессия ставится на паузу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Черновик записывается на телефон примерно раз в 5 секунд и при паузе. При внезапном сбое последние данные могут не сохраниться; после восстановления замер остаётся на паузе.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (details) Text("Черновик записывается на телефон примерно раз в 5 секунд и при паузе. При внезапном сбое последние данные могут не сохраниться; после восстановления замер остаётся на паузе.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (state.message.isNotEmpty()) Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     when (state.phase) {
                         SessionPhase.IDLE, SessionPhase.PAUSED -> {
@@ -184,13 +187,13 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
         }
         item {
             Text("ИСТОРИЯ · ВЫБЕРИТЕ ДВЕ ДЛЯ СРАВНЕНИЯ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = {
+            if (details) OutlinedButton(onClick = {
                 try { pickerPending = true; exportLauncher.launch("doxaiz-sessions.csv") }
                 catch (_: Exception) { pickerPending = false; exportMessage = "Не удалось открыть выбор файла в Android." }
             }, enabled = sessions.isNotEmpty() && !exporting && !pickerPending, modifier = Modifier.fillMaxWidth()) {
                 Text(if (exporting) "Сохраняем CSV…" else "Экспортировать историю в CSV")
             }
-            Text("Только сохранённые сессии, без черновика. CSV содержит даты, оператора и замеры, не зашифрован и не восстанавливается в приложении; выберите «Загрузки» вне папки приложения. При выборе облака файл передаётся выбранному сервису. Не закрывайте экран до завершения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (details) Text("Только сохранённые сессии, без черновика. CSV содержит даты, оператора и замеры, не зашифрован и не восстанавливается в приложении; выберите «Загрузки» вне папки приложения. При выборе облака файл передаётся выбранному сервису. Не закрывайте экран до завершения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (state.phase == SessionPhase.RUNNING) Text("При выборе файла активная сессия может перейти на паузу.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (exportMessage.isNotEmpty()) Text(exportMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (operationMessage.isNotEmpty()) Text(operationMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
