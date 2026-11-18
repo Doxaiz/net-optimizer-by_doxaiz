@@ -57,6 +57,8 @@ import com.doxaiz.netoptimizer.core.net.PingTester
 import com.doxaiz.netoptimizer.core.net.SpeedResult
 import com.doxaiz.netoptimizer.core.net.SpeedTester
 import com.doxaiz.netoptimizer.core.net.SpeedStatus
+import com.doxaiz.netoptimizer.core.net.SpeedDiagnostics
+import com.doxaiz.netoptimizer.core.net.SpeedHint
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentRed
@@ -98,6 +100,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
     var customTesting by remember { mutableStateOf(false) }
     var customJob by remember { mutableStateOf<Job?>(null) }
     var speed by remember { mutableStateOf<SpeedResult?>(null) }
+    var previousSpeed by remember { mutableStateOf<SpeedResult?>(null) }
     var speedTesting by remember { mutableStateOf(false) }
     var speedError by remember { mutableStateOf(false) }
     var speedJob by remember { mutableStateOf<Job?>(null) }
@@ -328,10 +331,20 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
                             }
                         }
                         Text("Сравниваем время установления TCP-соединения с 1.1.1.1:443 до и во время чтения данных с Cloudflare. Это не ICMP-пинг и лишь ориентир на возможный буферблат: загрузка может не насытить канал, другие приложения и маршруты влияют на результат. Отдача под нагрузкой не проверяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        speed?.let { result -> SpeedHints(result) }
+                        val before = previousSpeed
+                        val after = speed
+                        if (before != null && after != null) {
+                            SpeedComparison(before, after, onClear = { previousSpeed = null })
+                        }
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {
                                 speedTesting = true
+                                speed?.takeIf { result ->
+                                    result.status == SpeedStatus.COMPLETED &&
+                                        listOf(result.downloadMbps, result.uploadMbps).any { it != null && it.isFinite() && it > 0.0 }
+                                }?.let { previousSpeed = it }
                                 speed = null
                                 speedError = false
                                 speedJob = scope.launch {
@@ -470,6 +483,44 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor) {
             }
         }
     }
+}
+
+@Composable
+private fun SpeedHints(result: SpeedResult) {
+    val hints = SpeedDiagnostics.hints(result)
+    if (hints.isEmpty()) return
+    Spacer(Modifier.height(8.dp))
+    Text("ПОДСКАЗКИ ПО ЗАМЕРУ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    hints.forEach { hint ->
+        val text = when (hint) {
+            SpeedHint.INCOMPLETE -> "Не все направления измерены; неизвестное не означает нулевую скорость."
+            SpeedHint.SLOW_DOWNLOAD -> "Скачивание ниже условных 2 Мбит/с: большие файлы могут загружаться долго."
+            SpeedHint.SLOW_UPLOAD -> "Отдача ниже условного 1 Мбит/с: отправка больших файлов может занять больше времени."
+            SpeedHint.HIGH_IDLE_TCP -> "TCP-подключение к 1.1.1.1 до скачивания заняло более 150 мс. Это не пинг игрового сервера."
+            SpeedHint.LOADED_TCP_INCREASE -> "Во время скачивания медиана TCP выросла более чем на 100 мс. Это лишь возможный признак задержки под нагрузкой."
+            SpeedHint.NO_STRONG_INDICATION -> "Доступные цифры не вышли за условные пороги этих подсказок; качество связи это не гарантирует."
+        }
+        Text("• $text", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Text("Пороги ориентировочные. Причину неполадок и работу конкретной игры тест не определяет; повторный замер снова расходует трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun SpeedComparison(first: SpeedResult, second: SpeedResult, onClear: () -> Unit) {
+    val delta = SpeedDiagnostics.difference(first, second) ?: return
+    Spacer(Modifier.height(8.dp))
+    Text("СРАВНЕНИЕ ДВУХ ЗАМЕРОВ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    fun formatted(value: Double?) = value?.takeIf { it.isFinite() && it > 0.0 }?.let { "%.1f".format(it) } ?: "—"
+    fun change(value: Double?) = when {
+        value == null -> "разница недоступна"
+        kotlin.math.abs(value) < 0.05 -> "разница ≈0,0 Мбит/с"
+        value > 0 -> "разница +%.1f Мбит/с".format(value)
+        else -> "разница %.1f Мбит/с".format(value)
+    }
+    Text("Скачивание: ${formatted(first.downloadMbps)} → ${formatted(second.downloadMbps)} Мбит/с · ${change(delta.downloadMbps)}", style = MaterialTheme.typography.bodySmall)
+    Text("Отдача: ${formatted(first.uploadMbps)} → ${formatted(second.uploadMbps)} Мбит/с · ${change(delta.uploadMbps)}", style = MaterialTheme.typography.bodySmall)
+    Text("Это два отдельных ручных запуска. Время, сеть и нагрузка могли измениться; разница не доказывает, что приложение улучшило соединение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    TextButton(onClick = onClear) { Text("Скрыть сравнение") }
 }
 
 @Composable
