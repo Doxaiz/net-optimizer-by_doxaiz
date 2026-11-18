@@ -52,23 +52,35 @@ object ShizukuManager {
         null
     }
 
+    private fun waitForRemote(process: Process): Boolean {
+        // Shizuku's remote process exposes a Binder-backed timeout method. Process.waitFor
+        // can poll exitValue before the remote child exits and misinterpret Binder errors.
+        val method = process.javaClass.getMethod("waitForTimeout", Long::class.javaPrimitiveType, TimeUnit::class.java)
+        return method.invoke(process, 6L, TimeUnit.SECONDS) == true
+    }
+
     private fun runCommand(vararg cmd: String): Boolean {
         val process = newProcess(*cmd) ?: return false
         return try {
-            process.waitFor(6, TimeUnit.SECONDS) && process.exitValue() == 0
-        } catch (_: Exception) { false }
-        finally { try { process.destroy() } catch (_: Exception) { } }
+            waitForRemote(process) && process.exitValue() == 0
+        } catch (error: Exception) {
+            Log.w("NetOptShizuku", "Command failed: ${error.javaClass.simpleName}")
+            false
+        } finally { try { process.destroy() } catch (_: Exception) { } }
     }
 
     /** The fixed netpolicy query has short output; unknown/vendor responses are not success. */
     private fun readGlobalDataSaver(): Boolean? {
         val process = newProcess("cmd", "netpolicy", "get", "restrict-background") ?: return null
         return try {
-            if (!process.waitFor(6, TimeUnit.SECONDS) || process.exitValue() != 0) {
-                Log.w("NetOptShizuku", "Status command did not complete successfully")
-                null
-            } else DataSaverPolicy.parseGlobal(process.inputStream.bufferedReader().use { it.readText() }).also {
-                if (it == null) Log.w("NetOptShizuku", "Status command returned an unrecognized response")
+            // Open the pipe before waiting; some Shizuku versions release it on exit.
+            process.inputStream.bufferedReader().use { output ->
+                if (!waitForRemote(process) || process.exitValue() != 0) {
+                    Log.w("NetOptShizuku", "Status command did not complete successfully")
+                    null
+                } else DataSaverPolicy.parseGlobal(output.readText()).also {
+                    if (it == null) Log.w("NetOptShizuku", "Status command returned an unrecognized response")
+                }
             }
         } catch (error: Exception) {
             Log.w("NetOptShizuku", "Status query failed: ${error.javaClass.simpleName}")
