@@ -15,5 +15,13 @@
 | [M-Lab NDT](https://www.measurementlab.net/tests/ndt/) | Явный метод и разделение направления передачи. | Объяснять, что результаты разных методик и серверов не всегда сравнимы; не отправлять данные в M-Lab. |
 | [GlassWire](https://www.glasswire.com/android-help/) | График текущего трафика и история с выбором периода. | Отдельно показывать общую живую скорость и исторические счётчики UID с периодом; не выдавать историческую статистику за live-скорость приложения. |
 | [AdGuard DNS](https://adguard-dns.io/en/public-dns.html) | Описание DNS-профилей и ручной настройки Private DNS. | Чётко показывать выбранного провайдера и ручные шаги; не утверждать, что VPN-фильтрация уже работает. |
+| [NetManager](https://github.com/kexiuRT666/NetManager) | Детали сотовой связи и внимательное отношение к некорректным значениям Telephony API. GPLv3. | Самостоятельная проверка допустимых LTE/NR значений; без заимствования кода, карты и Dual-SIM. |
+| [netmonitor (pepperonas)](https://github.com/pepperonas/netmonitor) | График изменения счётчиков TrafficStats. MIT. | Важно обозначать, что общий счётчик трафика не является скоростью отдельного приложения. Код не заимствован. |
+
+## Инструмент проверки
+
+[Craft Anything](https://github.com/storytold/craft-anything) — ранний alpha-инструмент анализа и разработки, а не сетевой оптимизатор. В нём есть встроенный разбор собственного APK и сведения о компонентах и подписях. Проверка статического APK не заменяет запуск на телефоне, не гарантирует отсутствие ошибок и не проверяет доверие к ключу. Внешний инструмент не включается в приложение, данные в него автоматически не отправляются.
+
+Диапазоны LTE/NR для фильтрации RSRQ, SINR и PCI сверены с исходниками Android 14: [LTE signal](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-14.0.0_r1/telephony/java/android/telephony/CellSignalStrengthLte.java), [NR signal](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-14.0.0_r1/telephony/java/android/telephony/CellSignalStrengthNr.java), [LTE identity](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-14.0.0_r1/telephony/java/android/telephony/CellIdentityLte.java), [NR identity](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-14.0.0_r1/telephony/java/android/telephony/CellIdentityNr.java). Фильтрация не подтверждает свежесть и достоверность показаний модема.
 
 Ограничения проекта: только мобильные сети, без Wi‑Fi-функций, карты, анализа звонков, Dual-SIM, рекламы, подписок и новых серверов. Сохраняются пять вкладок, текущие темы и визуальный стиль. Снимки чужих экранов использовались только как справка и не включены в приложение.

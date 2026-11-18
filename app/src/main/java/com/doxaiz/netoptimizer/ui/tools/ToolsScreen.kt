@@ -606,6 +606,9 @@ private fun CurrentCellDetails(signal: SignalState) {
             Text("$channelName: ${signal.channel?.toString() ?: "—"} · PCI: ${signal.pci?.toString() ?: "—"}", style = MaterialTheme.typography.bodySmall)
             Text("RSRQ: ${signal.rsrq?.let { "$it dB" } ?: "—"} · качество опорного сигнала", style = MaterialTheme.typography.bodySmall)
             Text("SINR: ${signal.sinr?.let { "$it dB" } ?: "—"} · отношение сигнала к помехам", style = MaterialTheme.typography.bodySmall)
+            if (signal.rsrq == null || signal.sinr == null || signal.pci == null) {
+                Text("Прочерк: телефон не сообщил данные или вернул значение вне диапазона Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (signal.bandHint.isNotEmpty()) Text(signal.bandHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

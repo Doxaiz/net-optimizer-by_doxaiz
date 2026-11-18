@@ -146,11 +146,11 @@ class SignalMonitor(private val context: Context) {
         val cur = _state.value
         val neighborList = cells.filter { !it.isRegistered }.mapNotNull { info ->
             val parts = when (val id = info.cellIdentity) {
-                is CellIdentityLte -> Pair(id.pci, RadioChannels.lte(id.earfcn, id.bands).band)
-                is CellIdentityNr -> Pair(id.pci, RadioChannels.nr(id.nrarfcn, id.bands).band)
+                is CellIdentityLte -> Pair(RadioMeasurements.ltePci(id.pci), RadioChannels.lte(id.earfcn, id.bands).band)
+                is CellIdentityNr -> Pair(RadioMeasurements.nrPci(id.pci), RadioChannels.nr(id.nrarfcn, id.bands).band)
                 else -> null
             } ?: return@mapNotNull null
-            val pci = parts.first.takeIf { it >= 0 && it != Int.MAX_VALUE }
+            val pci = parts.first
             listOfNotNull(pci?.let { "PCI $it" }, parts.second.takeIf { it != "—" }).joinToString(" · ").ifEmpty { null }
         }.distinct().take(4)
 
@@ -164,11 +164,11 @@ class SignalMonitor(private val context: Context) {
             _state.value = cur.copy(
                 rsrp = s.dbm.takeIf { it in -160..-30 } ?: 0,
                 observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
-                rsrq = s.ssRsrq.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
-                sinr = s.ssSinr.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
+                rsrq = RadioMeasurements.nrRsrq(s.ssRsrq),
+                sinr = RadioMeasurements.nrSinr(s.ssSinr),
                 band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,
                 bandHint = if (radio.bandSource != null && !radio.band.contains(" / ")) CarrierProfiles.bandHint(radio.band) else "",
-                pci = id.pci.takeIf { it >= 0 && it != Int.MAX_VALUE },
+                pci = RadioMeasurements.nrPci(id.pci),
                 is5g = true, isLteA = false, networkType = "5G", neighbors = neighborList, hasPermission = true
             )
             return
@@ -181,11 +181,11 @@ class SignalMonitor(private val context: Context) {
             _state.value = cur.copy(
                 rsrp = s.rsrp.takeIf { it in -160..-30 } ?: 0,
                 observedAtElapsedMs = android.os.SystemClock.elapsedRealtime(),
-                rsrq = s.rsrq.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
-                sinr = s.rssnr.takeIf { it != Int.MAX_VALUE && it != Int.MIN_VALUE },
+                rsrq = RadioMeasurements.lteRsrq(s.rsrq),
+                sinr = RadioMeasurements.lteSinr(s.rssnr),
                 band = radio.band, bandSource = radio.bandSource, channel = radio.channel, frequencyKhz = radio.frequencyKhz,
                 bandHint = if (radio.bandSource != null && !radio.band.contains(" / ")) CarrierProfiles.bandHint(radio.band) else "",
-                pci = id.pci.takeIf { it >= 0 && it != Int.MAX_VALUE },
+                pci = RadioMeasurements.ltePci(id.pci),
                 isLteA = false, is5g = false, networkType = "4G", neighbors = neighborList, hasPermission = true
             )
         }
