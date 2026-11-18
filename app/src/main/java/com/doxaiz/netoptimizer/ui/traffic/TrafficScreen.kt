@@ -1,12 +1,11 @@
 package com.doxaiz.netoptimizer.ui.traffic
 
-import android.content.Intent
-import android.net.VpnService
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,227 +15,198 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import com.doxaiz.netoptimizer.core.dns.DoxaizVpnService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import com.doxaiz.netoptimizer.core.traffic.AppTraffic
+import com.doxaiz.netoptimizer.core.traffic.MobileRate
 import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
-import com.doxaiz.netoptimizer.ui.theme.AccentAmber
+import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
+import com.doxaiz.netoptimizer.core.traffic.TrafficSummaryStatus
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
-
-private data class TrafficSample(val speeds: Map<String, Long>)
-
-private val graphColors = listOf(AccentCyan, AccentViolet, AccentGreen)
+import kotlinx.coroutines.launch
 
 @Composable
 fun TrafficScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val monitor = remember { TrafficMonitor(context) }
-    var blocked by remember { mutableStateOf(DoxaizVpnService.blockedApps) }
-    var vpnOn by remember { mutableStateOf(DoxaizVpnService.running) }
-    var filter by remember { mutableStateOf("all") }
+    val monitor = remember { TrafficMonitor(context.applicationContext) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
-    var shizukuReady by remember { mutableStateOf(ShizukuManager.isReady()) }
-    val vpnLauncher = rememberLauncherForVpn(context) { vpnOn = true }
+    var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var rate by remember { mutableStateOf<MobileRate?>(null) }
+    var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
+    var summary by remember { mutableStateOf<TrafficSummary?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var protectedApps by remember { mutableStateOf(monitor.protectedByUser()) }
+    var filter by remember { mutableStateOf("all") }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var pendingStop by remember { mutableStateOf<AppTraffic?>(null) }
 
-    // Корректный запрос VPN-разрешения (документированный способ Android)
-    fun ensureVpn(newBlocked: Set<String>) {
-        val prepareIntent = VpnService.prepare(context)
-        if (prepareIntent != null) {
-            vpnLauncher.launch(prepareIntent)
-        } else {
-            DoxaizVpnService.start(context, DoxaizVpnService.currentDns, newBlocked)
-            vpnOn = true
-        }
-    }
-
-    val apps by monitor.observe(blocked).collectAsState(initial = emptyList())
-    val shown = apps.filter {
-        when (filter) {
-            "active" -> !it.networkBlocked && it.rxBytesPerSec + it.txBytesPerSec > 0
-            "blocked" -> it.networkBlocked
-            "white" -> it.whitelisted
-            else -> true
-        }
-    }
-
-    // История для живого графика (последние 30 замеров по 2 сек)
-    var history by remember { mutableStateOf<List<TrafficSample>>(emptyList()) }
-    LaunchedEffect(apps) {
-        if (apps.isNotEmpty()) {
-            val sample = TrafficSample(apps.associate { it.packageName to (it.rxBytesPerSec + it.txBytesPerSec) })
-            history = (history + sample).takeLast(30)
-        }
-    }
-
-    // Алерт: новое приложение начало активно качать (идея из GlassWire)
-    var newActivity by remember { mutableStateOf<String?>(null) }
-    val prevSpeeds = remember { mutableMapOf<String, Long>() }
-    LaunchedEffect(apps) {
-        apps.forEach { app ->
-            val prev = prevSpeeds[app.packageName] ?: 0L
-            val now = app.rxBytesPerSec + app.txBytesPerSec
-            if (prev < 50_000 && now > 300_000 && !app.networkBlocked && !app.whitelisted) {
-                newActivity = app.label
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> foreground = true
+                Lifecycle.Event.ON_STOP -> foreground = false
+                else -> Unit
             }
-            prevSpeeds[app.packageName] = now
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(monitor, foreground) {
+        rate = null
+        history = emptyList()
+        if (foreground) monitor.observeMobileRate().collect { current ->
+            rate = current
+            history = if (current == null) emptyList() else (history + current).takeLast(30)
+        }
+    }
+    LaunchedEffect(monitor, foreground, refresh) {
+        if (foreground) {
+            loading = true
+            summary = null
+            try { summary = monitor.today() } finally { loading = false }
         }
     }
 
-    val top3 = apps.sortedByDescending { it.rxBytesPerSec + it.txBytesPerSec }.take(3)
+    fun isProtected(app: AppTraffic) = app.systemProtected || app.packageNames.any { it in protectedApps }
+    val shown = summary?.apps.orEmpty().filter { filter == "all" || isProtected(it) }
 
-    fun applyBlocked(newBlocked: Set<String>) {
-        blocked = newBlocked
-        DoxaizVpnService.blockedApps = newBlocked
-        if (newBlocked.isNotEmpty() && !vpnOn) {
-            ensureVpn(newBlocked)
-        } else if (vpnOn) {
-            // Сервис перестроится и применит новый список блокировок
-            DoxaizVpnService.start(context, DoxaizVpnService.currentDns, newBlocked)
-        }
+    pendingStop?.let { app ->
+        AlertDialog(
+            onDismissRequest = { pendingStop = null },
+            title = { Text("Остановить ${app.label}?") },
+            text = { Text("Принудительная остановка может прервать загрузки и уведомления. Без работающего Shizuku откроется системная карточка, где действие нужно подтвердить вручную.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingStop = null
+                    val pkg = app.packageNames.singleOrNull()
+                    if (pkg != null && !isProtected(app)) {
+                        scope.launch {
+                            if (ShizukuManager.isReady() && ShizukuManager.forceStopApp(pkg)) {
+                                notice = "Команда остановки отправлена: ${app.label}."
+                            } else {
+                                notice = if (monitor.openAppSettings(pkg)) "Открыта карточка приложения; при необходимости нажмите «Остановить»." else "Не удалось открыть карточку приложения."
+                            }
+                        }
+                    }
+                }) { Text("Продолжить") }
+            },
+            dismissButton = { TextButton(onClick = { pendingStop = null }) { Text("Отмена") } }
+        )
     }
 
     LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-            if (newActivity != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2A121C)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
-                        Text("⚠️ «$newActivity» начал активно качать", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { newActivity = null }) { Text("OK") }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("Текущая скорость телефона", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (rate != null) "↓ ${formatRate(rate!!.rxBytesPerSecond)}  ·  ↑ ${formatRate(rate!!.txBytesPerSecond)}" else "Нет данных", style = MaterialTheme.typography.titleMedium, color = if (rate != null) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Общие счётчики мобильных интерфейсов Android, не скорость отдельных приложений. Первое значение появляется после двух снимков; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (history.size >= 2) {
+                        TrafficGraph(history)
+                        Text("Приём — голубой · отдача — фиолетовый; последние до 30 снимков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-            }
-            Text("Если список пуст, включите доступ к истории использования для приложения в настройках Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // Живой график топ-3 приложений
-            if (top3.isNotEmpty() && history.size > 2) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text("Живой трафик (топ-3)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(6.dp))
-                        TrafficGraph(history = history, top = top3)
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            top3.forEachIndexed { i, app ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.size(10.dp), contentAlignment = Alignment.Center) {
-                                        Canvas(Modifier.size(10.dp)) { drawCircle(graphColors[i % graphColors.size]) }
-                                    }
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(app.label, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-            androidx.compose.foundation.layout.Row(modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "Все", "active" to "Активные", "blocked" to "Заблокированные", "white" to "Белый список")
-                    .forEach { (key, label) ->
-                        FilterChip(selected = filter == key, onClick = { filter = key }, label = { Text(label) })
-                    }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Блокировка сети приложений временно недоступна: VPN требует безопасной переработки. Кнопка «Стоп» открывает системные настройки или использует Shizuku.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (!shizukuReady) {
-                Text(
-                    "💡 Со Shizuku кнопка «Стоп» останавливает приложение в 1 тап (без открытия настроек). Настройте Shizuku в разделе «Настройки».",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
-        items(shown) { app ->
-            AppRow(
-                app = app,
-                onToggleBlock = {
-                    if (app.whitelisted) return@AppRow
-                    val newSet = if (app.networkBlocked) blocked - app.packageName else blocked + app.packageName
-                    applyBlocked(newSet)
-                },
-                onStop = {
-                    if (shizukuReady) {
-                        // Shizuku: принудительная остановка в 1 тап
-                        scope.launch {
-                            val ok = ShizukuManager.forceStopApp(app.packageName)
-                            if (!ok) monitor.openAppSettings(app.packageName)
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("РАСХОД ПРИЛОЖЕНИЙ ЗА СЕГОДНЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("С полуночи по местному времени, только мобильные данные. Android может обновлять статистику с задержкой; это не текущая скорость. Показания могут отличаться от счёта оператора.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    when {
+                        loading -> Text("Получаем статистику…", style = MaterialTheme.typography.bodySmall)
+                        summary?.status == TrafficSummaryStatus.NO_ACCESS -> {
+                            Text("Нужен доступ к истории использования приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            OutlinedButton(onClick = { if (!monitor.openUsageAccess()) notice = "Откройте доступ к истории использования в настройках Android вручную." }) { Text("Предоставить доступ") }
                         }
-                    } else {
-                        monitor.openAppSettings(app.packageName)
+                        summary?.status == TrafficSummaryStatus.UNAVAILABLE -> Text("Android не предоставил данные. Попробуйте обновить позже.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        summary?.apps?.isEmpty() == true -> Text("За этот период данных пока нет или Android их ещё не обновил.", style = MaterialTheme.typography.bodySmall)
                     }
+                    OutlinedButton(onClick = { refresh++ }, enabled = !loading, modifier = Modifier.fillMaxWidth()) { Text("Обновить статистику") }
                 }
-            )
+            }
+        }
+        item {
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("all" to "Все", "white" to "Белый список").forEach { (key, label) ->
+                    FilterChip(selected = filter == key, onClick = { filter = key }, label = { Text(label) })
+                }
+            }
+            Text("Белый список защищает от остановки в этом приложении. Блокировка сети пока недоступна. Системные компоненты и общие UID защищены автоматически.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+            if (!loading && summary?.status == TrafficSummaryStatus.READY && shown.isEmpty() && filter == "white") {
+                Text("Защищённых записей с расходом за сегодня нет.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        items(shown, key = { it.uid }) { app ->
+            val userProtected = app.packageNames.singleOrNull()?.let { it in protectedApps } == true
+            TrafficRow(app, userProtected,
+                onProtection = { protect ->
+                    app.packageNames.singleOrNull()?.let { pkg ->
+                        monitor.setProtected(pkg, protect)
+                        protectedApps = monitor.protectedByUser()
+                    }
+                },
+                onStop = { pendingStop = app })
         }
     }
 }
 
 @Composable
-private fun TrafficGraph(history: List<TrafficSample>, top: List<AppTraffic>) {
-    Canvas(Modifier.fillMaxWidth().height(110.dp)) {
+private fun TrafficRow(app: AppTraffic, userProtected: Boolean, onProtection: (Boolean) -> Unit, onStop: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(app.label + if (app.systemProtected || userProtected) " 🛡" else "", style = MaterialTheme.typography.titleSmall)
+            Text("Всего ${formatBytes(app.totalBytes)} · ↓ ${formatBytes(app.rxBytes)} · ↑ ${formatBytes(app.txBytes)}", style = MaterialTheme.typography.bodySmall, color = AccentCyan)
+            if (app.packageNames.size > 1) Text("Общий UID: данные нельзя надёжно разделить между приложениями.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (app.systemProtected) {
+                    Text("Системная защита", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    TextButton(onClick = { onProtection(!userProtected) }) { Text(if (userProtected) "Убрать защиту" else "Защитить") }
+                    TextButton(onClick = onStop, enabled = !userProtected) { Text("Стоп") }
+                }
+            }
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000_000 -> "%.2f ГБ".format(bytes / 1_000_000_000.0)
+    bytes >= 1_000_000 -> "%.1f МБ".format(bytes / 1_000_000.0)
+    bytes >= 1_000 -> "%.1f КБ".format(bytes / 1_000.0)
+    else -> "$bytes Б"
+}
+private fun formatRate(bytesPerSecond: Double): String = when {
+    bytesPerSecond >= 1_000_000 -> "%.2f МБ/с".format(bytesPerSecond / 1_000_000)
+    bytesPerSecond >= 1_000 -> "%.1f КБ/с".format(bytesPerSecond / 1_000)
+    else -> "%.0f Б/с".format(bytesPerSecond)
+}
+
+@Composable
+private fun TrafficGraph(history: List<MobileRate>) {
+    Canvas(Modifier.fillMaxWidth().height(100.dp)) {
         if (history.size < 2) return@Canvas
-        val maxSpeed = history.flatMap { it.speeds.values }.maxOrNull()?.toFloat() ?: 1f
-        val safeMax = if (maxSpeed <= 0f) 1f else maxSpeed
-        val stepX = size.width / (history.size - 1)
-        top.forEachIndexed { idx, app ->
-            val color = graphColors[idx % graphColors.size]
+        val maxValue = history.maxOf { maxOf(it.rxBytesPerSecond, it.txBytesPerSecond) }.coerceAtLeast(1.0)
+        val step = size.width / (history.size - 1)
+        listOf(AccentCyan to { r: MobileRate -> r.rxBytesPerSecond }, AccentViolet to { r: MobileRate -> r.txBytesPerSecond }).forEach { (color, value) ->
             val path = Path()
             history.forEachIndexed { i, sample ->
-                val v = (sample.speeds[app.packageName] ?: 0L).toFloat()
-                val x = i * stepX
-                val y = size.height - (v / safeMax) * (size.height - 10f) - 5f
+                val x = step * i
+                val y = size.height - (value(sample) / maxValue).toFloat() * (size.height - 10f) - 5f
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
             drawPath(path, color, style = Stroke(2.5f))
         }
-        // Подпись максимума
         drawLine(Color.Gray.copy(alpha = 0.3f), Offset(0f, 5f), Offset(size.width, 5f), 1f)
-    }
-}
-
-@Composable
-private fun AppRow(app: AppTraffic, onToggleBlock: () -> Unit, onStop: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(app.label + if (app.whitelisted) " 🛡" else "")
-                Text(
-                    if (app.networkBlocked) "сеть отключена" else "сейчас: %.1f МБ/с".format((app.rxBytesPerSec + app.txBytesPerSec) / 1_000_000.0),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (app.networkBlocked) AccentGreen else AccentAmber
-                )
-            }
-            TextButton(onClick = onStop, enabled = !app.whitelisted) { Text("Стоп") }
-            Switch(
-                checked = !app.networkBlocked,
-                onCheckedChange = { onToggleBlock() },
-                enabled = false
-            )
-        }
-    }
-}
-
-@Composable
-private fun rememberLauncherForVpn(
-    context: android.content.Context,
-    onGranted: () -> Unit
-) = androidx.activity.compose.rememberLauncherForActivityResult(
-    androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-) { result ->
-    if (result.resultCode == android.app.Activity.RESULT_OK) {
-        DoxaizVpnService.start(context, DoxaizVpnService.currentDns, DoxaizVpnService.blockedApps)
-        onGranted()
     }
 }

@@ -1,130 +1,138 @@
 package com.doxaiz.netoptimizer.core.traffic
 
+import android.app.AppOpsManager
+import android.app.usage.NetworkStats
+import android.app.usage.NetworkStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
+import android.net.TrafficStats
 import android.os.Process
+import android.os.SystemClock
+import android.provider.Settings
+import com.doxaiz.netoptimizer.core.net.CellularNetwork
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
+import java.util.Calendar
 
-/** Живая статистика одного приложения */
+/** One row per UID: shared UIDs are deliberately never attributed to one arbitrary app. */
 data class AppTraffic(
-    val packageName: String,
-    val label: String,
     val uid: Int,
-    val rxBytesPerSec: Long,
-    val txBytesPerSec: Long,
-    val totalRxBytes: Long,
-    val networkBlocked: Boolean,
-    val whitelisted: Boolean
-)
+    val label: String,
+    val packageNames: List<String>,
+    val rxBytes: Long,
+    val txBytes: Long,
+    val systemProtected: Boolean
+) {
+    val totalBytes: Long get() = saturatedAdd(rxBytes, txBytes)
+}
 
-/**
- * Монитор трафика: живая скорость каждого приложения через NetworkStatsManager.
- * Белый список защищает звонки, банки и системный тетеринг от случайного отключения.
- *
- * queryDetailsForUid вызывается по каждому UID отдельно (5 параметров, API 29+),
- * байты суммируются по всем бакетам — получаем кумулятивный объём,
- * а скорость = дельта между двумя снимками.
- */
+enum class TrafficSummaryStatus { READY, NO_ACCESS, UNAVAILABLE }
+data class TrafficSummary(val status: TrafficSummaryStatus, val apps: List<AppTraffic> = emptyList())
+
 class TrafficMonitor(private val context: Context) {
+    private val protectedPackages = setOf("com.android.phone", "com.android.systemui", "com.google.android.dialer", "com.samsung.android.dialer")
+    private val prefs = context.getSharedPreferences("protected_traffic_apps", Context.MODE_PRIVATE)
 
-    private val statsManager: android.app.usage.NetworkStatsManager =
-        context.getSystemService(android.app.usage.NetworkStatsManager::class.java)
+    fun protectedByUser(): Set<String> = prefs.getStringSet("packages", emptySet())?.toSet() ?: emptySet()
+    fun setProtected(pkg: String, protect: Boolean) {
+        val updated = protectedByUser().toMutableSet()
+        if (protect) updated.add(pkg) else updated.remove(pkg)
+        prefs.edit().putStringSet("packages", updated).apply()
+    }
 
-    private val connectivity: ConnectivityManager =
-        context.getSystemService(ConnectivityManager::class.java)
+    fun hasUsageAccess(): Boolean {
+        return try {
+            val appOps = context.getSystemService(AppOpsManager::class.java) ?: return false
+            when (appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)) {
+                AppOpsManager.MODE_ALLOWED -> true
+                AppOpsManager.MODE_DEFAULT -> context.checkSelfPermission(android.Manifest.permission.PACKAGE_USAGE_STATS) == PackageManager.PERMISSION_GRANTED
+                else -> false
+            }
+        } catch (_: Exception) { false }
+    }
 
-    private val whitelist = setOf(
-        "com.android.phone", "com.android.systemui",
-        "com.google.android.dialer", "com.samsung.android.dialer"
-    )
-
-    fun observe(blocked: Set<String>): Flow<List<AppTraffic>> = flow {
-        var prev = mutableMapOf<Int, Pair<Long, Long>>()
+    /** Mobile interface counters, not per-app rates and never Wi-Fi counters. */
+    fun observeMobileRate(): Flow<MobileRate?> = flow {
+        var previous: MobileCounters? = null
         while (true) {
-            val list = snapshot(prev, blocked)
-            emit(list)
-            delay(2000)
+            val network = CellularNetwork.active(context)
+            val current = if (network != null) {
+                val rx = TrafficStats.getMobileRxBytes()
+                val tx = TrafficStats.getMobileTxBytes()
+                val now = SystemClock.elapsedRealtime()
+                if (rx >= 0 && tx >= 0 && CellularNetwork.active(context) == network)
+                    MobileCounters(network.networkHandle, now, rx, tx) else null
+            } else null
+            emit(current?.let { TrafficRate.between(previous, it) })
+            previous = current
+            delay(2_000)
         }
     }.flowOn(Dispatchers.IO)
 
-    private fun snapshot(
-        prev: MutableMap<Int, Pair<Long, Long>>,
-        blocked: Set<String>
-    ): List<AppTraffic> {
-        val network = connectivity.activeNetwork ?: return emptyList()
-        val caps = connectivity.getNetworkCapabilities(network) ?: return emptyList()
-        val transport = when {
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 0 // TRANSPORT_CELLULAR
-            else -> return emptyList()
-        }
-        val pm = context.packageManager
-        val end = System.currentTimeMillis()
-
-        @Suppress("DEPRECATION")
-        val installed = try {
-            pm.getInstalledPackages(0)
-        } catch (_: Exception) {
-            emptyList<android.content.pm.PackageInfo>()
-        }
-
-        val latest = mutableMapOf<Int, Pair<Long, Long>>()
-        for (info in installed) {
-            val uid = info.applicationInfo?.uid ?: continue
-            if (uid == Process.myUid()) continue
-            val stats = try {
-                statsManager.queryDetailsForUid(transport, null, 0L, end, uid)
-            } catch (_: Exception) { null } ?: continue
-            val bucket = android.app.usage.NetworkStats.Bucket()
-            var rx = 0L
-            var tx = 0L
-            while (stats.hasNextBucket()) {
-                stats.getNextBucket(bucket)
-                rx += bucket.rxBytes
-                tx += bucket.txBytes
+    /** Historical mobile bytes, one query, for the current local day; Android may report with a delay. */
+    suspend fun today(): TrafficSummary = withContext(Dispatchers.IO) {
+        if (!hasUsageAccess()) return@withContext TrafficSummary(TrafficSummaryStatus.NO_ACCESS)
+        val manager = context.getSystemService(NetworkStatsManager::class.java)
+            ?: return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
+        val now = System.currentTimeMillis()
+        val start = Calendar.getInstance().apply {
+            timeInMillis = now
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        try {
+            @Suppress("DEPRECATION")
+            val stats = manager.querySummary(ConnectivityManager.TYPE_MOBILE, null, start, now)
+                ?: return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
+            val totals = TrafficTotals()
+            stats.use {
+                val bucket = NetworkStats.Bucket()
+                while (it.hasNextBucket()) {
+                    currentCoroutineContext().ensureActive()
+                    if (!it.getNextBucket(bucket)) return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
+                    if (!totals.add(bucket.uid, bucket.rxBytes, bucket.txBytes)) return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
+                }
             }
-            try { stats.close() } catch (_: Exception) { }
-            if (rx + tx > 0L) latest[uid] = rx to tx
+            currentCoroutineContext().ensureActive()
+            if (!hasUsageAccess()) return@withContext TrafficSummary(TrafficSummaryStatus.NO_ACCESS)
+            val pm = context.packageManager
+            val apps = totals.snapshot().mapNotNull { (uid, amount) ->
+                if (amount.first == 0L && amount.second == 0L) return@mapNotNull null
+                val packages = if (uid >= 0) (pm.getPackagesForUid(uid)?.toList() ?: emptyList()).sorted() else emptyList()
+                val info = if (packages.size == 1) try { pm.getApplicationInfo(packages.first(), 0) } catch (_: Exception) { null } else null
+                val label = when {
+                    uid == NetworkStats.Bucket.UID_TETHERING -> "Раздача интернета"
+                    uid == NetworkStats.Bucket.UID_REMOVED -> "Удалённые приложения"
+                    packages.size > 1 -> "Общий UID $uid · ${packages.size} приложений"
+                    info != null -> try { pm.getApplicationLabel(info).toString() } catch (_: Exception) { packages.first() }
+                    else -> "Система или неизвестное приложение · UID $uid"
+                }
+                val automaticProtection = packages.size != 1 || info == null || uid == Process.myUid() ||
+                    packages.any { it in protectedPackages } || (info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
+                AppTraffic(uid, label, packages, amount.first, amount.second, automaticProtection)
+            }.sortedByDescending { it.totalBytes }
+            TrafficSummary(TrafficSummaryStatus.READY, apps)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            TrafficSummary(if (hasUsageAccess()) TrafficSummaryStatus.UNAVAILABLE else TrafficSummaryStatus.NO_ACCESS)
         }
-
-        val result = mutableListOf<AppTraffic>()
-        for ((uid, totals) in latest) {
-            val (rx, tx) = totals
-            val pkg = pm.getPackagesForUid(uid)?.firstOrNull() ?: continue
-            val old = prev[uid]
-            val rxSpeed = if (old != null && rx >= old.first) (rx - old.first) / 2 else 0L
-            val txSpeed = if (old != null && tx >= old.second) (tx - old.second) / 2 else 0L
-            prev[uid] = rx to tx
-            val label = try {
-                val ai = pm.getApplicationInfo(pkg, 0)
-                pm.getApplicationLabel(ai).toString()
-            } catch (_: Exception) { pkg }
-            result += AppTraffic(
-                packageName = pkg,
-                label = label,
-                uid = uid,
-                rxBytesPerSec = rxSpeed,
-                txBytesPerSec = txSpeed,
-                totalRxBytes = rx,
-                networkBlocked = blocked.contains(pkg),
-                whitelisted = whitelist.contains(pkg)
-            )
-        }
-        if (prev.size > 500) prev.clear() // защита от роста памяти за длинную сессию
-        return result.sortedByDescending { it.rxBytesPerSec + it.txBytesPerSec }
     }
 
-    /** Открыть системную карточку приложения (кнопка «Остановить» без root) */
-    fun openAppSettings(packageName: String) {
-        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-            data = android.net.Uri.parse("package:$packageName")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-    }
+    fun openUsageAccess(): Boolean = open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    fun openAppSettings(packageName: String): Boolean = open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = android.net.Uri.parse("package:$packageName")
+    })
+    private fun open(intent: Intent): Boolean = try {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: Exception) { false }
 }
