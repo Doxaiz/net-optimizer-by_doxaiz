@@ -23,6 +23,10 @@ fun SettingsScreen(
     onOpenSetup: () -> Unit
 ) {
     val context = LocalContext.current
+    val versionName = remember(context) {
+        try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "—" }
+        catch (_: Exception) { "—" }
+    }
     var theme by remember { mutableStateOf(ThemePrefs.load(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuManager.status()) }
     var permissionError by remember { mutableStateOf(false) }
@@ -156,7 +160,7 @@ fun SettingsScreen(
         }
         item {
             Text(
-                "Net Optimizer by Doxaiz · v1.1.1 · Open Source\n100% бесплатно, без регистрации и рекламы. История хранится на телефоне; замеры обращаются к сторонним серверам.",
+                "Net Optimizer by Doxaiz · v$versionName · Open Source\n100% бесплатно, без регистрации и рекламы. История хранится на телефоне; замеры обращаются к сторонним серверам.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
