@@ -124,7 +124,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         SetupItem("Shizuku · не обязательно", when (shizukuStatus) {
                             ShizukuManager.Status.READY -> "Подключён. Остановка выбранных приложений выполняется только с подтверждением; работа зависит от устройства."
                             ShizukuManager.Status.NO_PERMISSION -> "Запущен. Можно разрешить дополнительный доступ."
-                            else -> "Позволяет пробовать остановку выбранных приложений. Без него можно пользоваться системными настройками."
+                            else -> "Позволяет пробовать остановку выбранных приложений. Установите и запустите Shizuku по его инструкции (например, через беспроводную отладку), вернитесь сюда и разрешите доступ. Без него используйте системные настройки."
                         }, ready, if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) "Разрешить" else "Установить или открыть") {
                             if (shizukuStatus == ShizukuManager.Status.NO_PERMISSION) ShizukuManager.requestPermission(1001)
                             else if (!ShizukuManager.openAppOrStore(context)) message = "Не удалось открыть Shizuku. Найдите его в магазине приложений или на GitHub."

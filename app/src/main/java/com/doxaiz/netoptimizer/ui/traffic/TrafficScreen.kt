@@ -238,7 +238,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                 }
             }
         }
-        item { LoadOptimizationCard(optimizer) }
+        item { LoadOptimizationCard(optimizer, details) }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -303,6 +303,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                     Column(Modifier.padding(12.dp)) {
                         Text(app.label, style = MaterialTheme.typography.titleSmall)
                         Text("Израсходовано: ${formatBytes(app.totalBytes)}", color = AccentCyan)
+                        if (app.packageNames.size > 1) Text("Общие данные нескольких приложений, по отдельности недоступны.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else {
@@ -330,14 +331,14 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
 }
 
 @Composable
-private fun LoadOptimizationCard(controller: LoadOptimizationController) {
+private fun LoadOptimizationCard(controller: LoadOptimizationController, details: Boolean) {
     val state = controller.state
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("СНИЗИТЬ НАГРУЗКУ НА СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text("1. Измерьте задержку. 2. Поставьте ненужные загрузки на паузу или остановите выбранное приложение ниже. При USB-модеме проверьте загрузки и на ПК. 3. Измерьте снова.", style = MaterialTheme.typography.bodySmall)
+            Text(if (details) "1. Измерьте задержку. 2. Поставьте ненужные загрузки на паузу или остановите выбранное приложение ниже. При USB-модеме проверьте загрузки и на ПК. 3. Измерьте снова." else "1. Начните сравнение. 2. Поставьте ненужные загрузки на паузу. 3. Измерьте ещё раз. Остановку приложений можно найти в дополнительных действиях выше.", style = MaterialTheme.typography.bodySmall)
             Text("Уменьшение конкурирующего трафика может освободить канал и снизить задержку, но не меняет настройки сети и не гарантирует улучшения. Расход за период ниже не показывает, что приложение использует сеть прямо сейчас.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Для сравнения скорости отдельно запустите два спидтеста в Инструменты → Замеры, до и после паузы загрузок. Каждый тест расходует до 15 МБ плюс служебный трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (details) Text("Для сравнения скорости отдельно запустите два спидтеста в Инструменты → Замеры, до и после паузы загрузок. Каждый тест расходует до 15 МБ плюс служебный трафик.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             state.before?.let { Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium) }
             state.after?.let { after ->
                 Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)

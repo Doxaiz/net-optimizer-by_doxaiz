@@ -146,7 +146,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
         }
         item {
             Button(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                Text("⚡ УЛУЧШИТЬ")
+                Text("⚡ Снизить нагрузку на сеть")
             }
             Text("Откроется снижение нагрузки на сеть: вы сами выбираете действие, затем можно сравнить задержку до и после.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
