@@ -1,0 +1,62 @@
+name: Publish verified 1.0.1 (temporary)
+on:
+  push:
+    branches: [arena/1cfa410c-net-optimizer-by-doxaiz]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify checks and source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh run view 44375212176 --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = 'e351f65f7829e88f87c03e1608c32e94bbd98167'
+          test "$(gh run view 44375212176 --repo "$GITHUB_REPOSITORY" --json jobs --jq '.jobs[] | select(.name == "build") | .conclusion')" = 'success'
+          test "$(gh run view 44375212176 --repo "$GITHUB_REPOSITORY" --json jobs --jq '.jobs[] | select(.name == "emulator (34)") | .conclusion')" = 'success'
+          test "$(gh run view 44377314884 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = 'success'
+          test "$(gh run view 44377314884 --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = '8edb4267bd27048a64439387c460725ff4afce0f'
+          git diff --quiet df1f469141507ad9e76819bcd88663a66530d9d0 e351f65f7829e88f87c03e1608c32e94bbd98167 -- app build.gradle.kts settings.gradle.kts gradle gradle.properties
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" = df1f469141507ad9e76819bcd88663a66530d9d0
+          if gh release view v1.0.1 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo '::error::Release v1.0.1 already exists; refusing to replace it.'
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-1.0.1-candidate
+          path: candidate
+          run-id: 44375212176
+          github-token: ${{ github.token }}
+      - name: Publish checked APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          apk=candidate/app-release.apk
+          test -s "$apk"
+          hash=$(sha256sum "$apk" | cut -d ' ' -f1)
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          ## Что нового
+
+          В разделе «Снизить нагрузку на сеть» добавлен переход к системной экономии трафика Android и отображение её состояния. Включать и отключать настройку нужно самостоятельно. Она может ограничить фоновые загрузки на лимитных сетях, но не гарантирует увеличение скорости или уменьшение задержки; уведомления и синхронизация могут задерживаться.
+
+          ## Установка
+
+          Android 12+. Внутренний versionCode — 14. APK подписан той же подписью, что и выпуск 1.0.0. Обновление с 1.0.0, сохранение прохождения подготовки и новый экран проверены на эмуляторах Android 12 и 14. Перед обновлением сохраните важную историю; конкретный телефон, оператор и реальная мобильная сеть не проверялись.
+
+          **Безопасность:** по решению владельца использован прежний, ранее раскрытый ключ подписи. Он скомпрометирован; совпадение подписи не делает его секретным.
+
+          SHA-256: \`$hash\`
+          EOF
+          gh release create v1.0.1 "$apk" --repo "$GITHUB_REPOSITORY" --target df1f469141507ad9e76819bcd88663a66530d9d0 --title 'Net Optimizer by Doxaiz 1.0.1' --notes-file "$RUNNER_TEMP/notes.md" --latest
+          digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.0.1" --jq '.assets[] | select(.name == "app-release.apk") | .digest')
+          test "$digest" = "sha256:$hash"
+          echo "Published SHA-256: $hash"
