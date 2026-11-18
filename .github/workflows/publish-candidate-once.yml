@@ -1,0 +1,60 @@
+name: Publish verified 1.0.2 (temporary)
+on:
+  push:
+    branches: [arena/955bd13f-net-optimizer-by-doxaiz]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify checks and source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh run view 44423019031 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 44423019031 --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = 1c4879ba8fd085f2b5cbc9993a098f2aa472ca46
+          git diff --quiet 4823643b75f698ab97200975d9bd10689a586e3e 1c4879ba8fd085f2b5cbc9993a098f2aa472ca46 -- app build.gradle.kts settings.gradle.kts gradle gradle.properties
+          if gh release view v1.0.2 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo '::error::Release v1.0.2 already exists; refusing to replace it.'
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-1.0.2-candidate
+          path: candidate
+          run-id: 44423019031
+          github-token: ${{ github.token }}
+      - name: Publish checked APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          apk=candidate/app-release.apk
+          test -s "$apk"
+          hash=$(sha256sum "$apk" | cut -d ' ' -f1)
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          ## Что нового
+
+          - Более простой главный экран и доступная остановка выбранных приложений.
+          - При подключённом Shizuku можно включить или выключить системную экономию трафика после подтверждения. Без Shizuku доступны настройки Android.
+          - Экономия может ограничивать фоновые загрузки на лимитных сетях, но не гарантирует ускорение. Она действует на всём устройстве до отключения и может задерживать уведомления.
+
+          ## Установка
+
+          Android 12+, versionCode 15. Подпись совпадает с 1.0.1. Обновление и управление экономией через Shizuku 13.6.0 проверены на эмуляторах Android 12 и 14. Сохраните важную историю перед установкой. Реальный телефон и улучшение мобильной сети ещё не проверялись.
+
+          По решению владельца используется прежний, скомпрометированный ключ подписи.
+
+          SHA-256: \`$hash\`
+          EOF
+          gh release create v1.0.2 "$apk" --repo "$GITHUB_REPOSITORY" --target 4823643b75f698ab97200975d9bd10689a586e3e --title 'Net Optimizer by Doxaiz 1.0.2' --notes-file "$RUNNER_TEMP/notes.md" --latest
+          digest=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.0.2" --jq '.assets[] | select(.name == "app-release.apk") | .digest')
+          test "$digest" = "sha256:$hash"
+          echo "Published SHA-256: $hash"
