@@ -1,6 +1,8 @@
 package com.doxaiz.netoptimizer.core.cellular
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.os.SystemClock
 import android.content.Context
 import android.content.pm.PackageManager
 import android.telephony.CellIdentityLte
@@ -22,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executor
 
 /** Живое состояние сотовой сети */
 data class SignalState(
@@ -56,8 +59,9 @@ fun SignalState.withoutCellData(): SignalState = copy(
 /**
  * Монитор сотового сигнала: RSRP / RSRQ / SINR / Band / агрегация.
  *
- * Опрос allCellInfo каждые 3 секунды, вне главного потока. Android или модем
- * могут вернуть устаревшие данные. Никаких скрытых API.
+ * Кэш allCellInfo читается каждые 3 секунды; обновление запрашивается не чаще
+ * раза в 15 секунд при достаточном заряде. Android может ограничить или отклонить
+ * запрос и вернуть устаревшие данные. Никаких скрытых API.
  */
 class SignalMonitor(private val context: Context) {
 
@@ -68,22 +72,32 @@ class SignalMonitor(private val context: Context) {
     val state: StateFlow<SignalState> = _state
 
     private var pollingJob: Job? = null
+    private val refreshGate = CellRefreshGate<List<CellInfo>>()
 
     fun start(scope: CoroutineScope) {
         if (pollingJob?.isActive == true) return
+        refreshGate.start()
         pollingJob = scope.launch(Dispatchers.IO) {
+            var lastRefresh: List<CellInfo>? = null
+            var refreshReceivedAt = 0L
             while (isActive) {
                 updateTemperature()
                 currentCoroutineContext().ensureActive()
                 updateOperator()
                 currentCoroutineContext().ensureActive()
-                readCells()
+                requestRefreshIfAllowed()
+                currentCoroutineContext().ensureActive()
+                val now = SystemClock.elapsedRealtime()
+                refreshGate.take()?.let { lastRefresh = it; refreshReceivedAt = now }
+                if (!hasLocationPermission() || now < refreshReceivedAt || now - refreshReceivedAt > 30_000) lastRefresh = null
+                readCells(lastRefresh)
                 delay(3000)
             }
         }
     }
 
     fun stop() {
+        refreshGate.stop()
         pollingJob?.cancel()
         pollingJob = null
     }
@@ -92,6 +106,18 @@ class SignalMonitor(private val context: Context) {
         ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
+
+    @SuppressLint("MissingPermission") // checked immediately before the request; revocation can still race
+    private fun requestRefreshIfAllowed() {
+        val manager = telephony ?: return
+        if (!hasLocationPermission() || (_state.value.battery?.percent ?: -1) < 20) return
+        val id = refreshGate.tryStart(SystemClock.elapsedRealtime()) ?: return
+        try {
+            manager.requestCellInfoUpdate(Executor { it.run() }, CellRefreshCallback(refreshGate, id))
+        } catch (_: Exception) {
+            refreshGate.complete(id, null)
+        }
+    }
 
     /** Battery temperature is reported by Android in tenths of a degree. */
     private suspend fun updateTemperature() {
@@ -126,12 +152,12 @@ class SignalMonitor(private val context: Context) {
         )
     }
 
-    private suspend fun readCells() {
+    private suspend fun readCells(refreshed: List<CellInfo>?) {
         if (!hasLocationPermission()) {
             clearCell(false)
             return
         }
-        val cells: List<CellInfo> = try {
+        val cached: List<CellInfo> = try {
             telephony?.allCellInfo ?: emptyList()
         } catch (_: SecurityException) {
             clearCell(false)
@@ -142,12 +168,24 @@ class SignalMonitor(private val context: Context) {
         }
         currentCoroutineContext().ensureActive()
         try {
+            val cells = chooseCells(cached, refreshed, SystemClock.elapsedRealtime())
             if (cells.none { it.isRegistered && (it.cellIdentity is CellIdentityLte || it.cellIdentity is CellIdentityNr) }) {
                 clearCell(true)
                 return
             }
             updateFromCells(cells)
         } catch (_: Exception) { clearCell(true) }
+    }
+
+    private fun preferredCell(cells: List<CellInfo>): CellInfo? =
+        cells.firstOrNull { it.isRegistered && it.cellIdentity is CellIdentityNr }
+            ?: cells.firstOrNull { it.isRegistered && it.cellIdentity is CellIdentityLte }
+
+    private fun chooseCells(cached: List<CellInfo>, refreshed: List<CellInfo>?, now: Long): List<CellInfo> {
+        val cachedCell = preferredCell(cached)
+        val refreshedCell = refreshed?.let(::preferredCell)
+        return if (CellSourceChoice.useRefresh(cachedCell != null, cachedCell?.timestampMillis,
+                refreshedCell != null, refreshedCell?.timestampMillis, now)) refreshed!! else cached
     }
 
     private fun updateFromCells(cells: List<CellInfo>) {
@@ -197,5 +235,19 @@ class SignalMonitor(private val context: Context) {
                 isLteA = false, is5g = false, networkType = "4G", neighbors = neighborList, hasPermission = true
             )
         }
+    }
+}
+
+/** Does not retain the monitor or Activity; late callbacks are discarded by the gate. */
+private class CellRefreshCallback(
+    private val gate: CellRefreshGate<List<CellInfo>>,
+    private val requestId: Long
+) : TelephonyManager.CellInfoCallback() {
+    override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
+        gate.complete(requestId, cellInfo.toList())
+    }
+
+    override fun onError(errorCode: Int, detail: Throwable?) {
+        gate.complete(requestId, null)
     }
 }

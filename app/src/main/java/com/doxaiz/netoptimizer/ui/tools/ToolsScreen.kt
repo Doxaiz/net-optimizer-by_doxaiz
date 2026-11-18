@@ -88,6 +88,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     var soundOn by remember { mutableStateOf(false) }
     var vibOn by remember { mutableStateOf(false) }
     var radioError by remember { mutableStateOf(false) }
+    var dialError by remember { mutableStateOf(false) }
+    var showTestingGuide by remember { mutableStateOf(false) }
     var dnsList by remember { mutableStateOf(DnsCatalog.servers) }
     var selectedDns by remember { mutableStateOf<DnsServer?>(null) }
     var benching by remember { mutableStateOf(false) }
@@ -179,6 +181,22 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
         listState.scrollToItem(0)
     }
 
+    if (showTestingGuide) {
+        AlertDialog(
+            onDismissRequest = { showTestingGuide = false },
+            title = { Text("Системное меню сведений") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("На некоторых Android меню «Информация о телефоне» открывается через телефонный набор кода *#*#4636#*#*. На XOS или у оператора оно может отсутствовать. Приложение код не набирает и настройки не меняет.")
+                    Text("Перед изменениями запишите исходный режим. Только LTE и NR/LTE могут нарушить звонки, SMS и экстренные вызовы, если VoLTE не работает; NR only может не подключиться в сетях 5G NSA. Мы не можем подтвердить VoLTE. Не меняйте переключатель питания радио и инженерные параметры.", style = MaterialTheme.typography.bodySmall)
+                    Text("Меню может показывать IMEI и другие личные данные — не пересылайте их.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showTestingGuide = false; dialError = !openDialer(context) }) { Text("Открыть телефон") } },
+            dismissButton = { TextButton(onClick = { showTestingGuide = false }) { Text("Закрыть") } }
+        )
+    }
+
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 14.dp)) {
         Spacer(Modifier.height(14.dp))
         Text("ИНСТРУМЕНТЫ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -218,7 +236,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text("Оценка только по уровню сигнала; расположение сот не определяется. Android может возвращать данные с задержкой.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Кэш Android читается примерно раз в 3 с; обновление у модема запрашивается не чаще 15 с при заряде от 20%. Android может ограничить запрос или вернуть старые данные. Расположение сот не определяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(selected = soundOn, onClick = { soundOn = !soundOn }, label = { Text("🔊 Звук") })
@@ -238,7 +256,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Стабилизация 4G / 5G", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Принудительный режим сети пока недоступен: проверка VoLTE не реализована. Без VoLTE переключение может помешать звонкам.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Тип сети выбирается вручную в настройках телефона: обычно доступны предпочтение 4G или автоматический 5G/4G с резервными сетями. Доступные варианты зависят от устройства и оператора; лучший режим нужно проверить замерами.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Приложение не переключает режим и не умеет подтвердить работу VoLTE. Режимы только LTE или NR/LTE могут нарушить звонки и SMS; NR only также может отключить интернет. Не меняйте их без проверки и возможности вернуть исходный режим.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Анти-сон модема (Keep-Alive)")
@@ -252,7 +271,10 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { radioError = !openRadioInfo(context) }, modifier = Modifier.weight(1f)) { Text("📡 Открыть настройки сети") }
                         }
-                        if (radioError) Text("Не удалось открыть настройки; откройте настройки сети вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text("Найдите раздел «Мобильная сеть» → «Предпочтительный тип сети». Названия на XOS могут отличаться; если откроются настройки роуминга, ничего там не переключайте.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = { showTestingGuide = true }, modifier = Modifier.fillMaxWidth()) { Text("О сервисном меню телефона") }
+                        if (radioError) Text("Не удалось открыть настройки; откройте настройки мобильной сети вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        if (dialError) Text("Не удалось открыть приложение «Телефон»; откройте его вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -813,7 +835,7 @@ private fun RadarCanvas(rsrp: Int, soundOn: Boolean = true, vibOn: Boolean = fal
 }
 
 private fun openRadioInfo(context: android.content.Context): Boolean {
-    val actions = listOf(android.provider.Settings.ACTION_NETWORK_OPERATOR_SETTINGS, android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+    val actions = listOf(android.provider.Settings.ACTION_DATA_ROAMING_SETTINGS, android.provider.Settings.ACTION_WIRELESS_SETTINGS, android.provider.Settings.ACTION_SETTINGS)
     for (action in actions) {
         try {
             context.startActivity(android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -822,4 +844,14 @@ private fun openRadioInfo(context: android.content.Context): Boolean {
         } catch (_: SecurityException) { }
     }
     return false
+}
+
+/** Opens the dialer without pre-filling or executing a service code. */
+private fun openDialer(context: android.content.Context): Boolean = try {
+    context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (_: android.content.ActivityNotFoundException) {
+    false
+} catch (_: SecurityException) {
+    false
 }
