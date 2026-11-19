@@ -13,7 +13,11 @@ if os.environ.get("AUDIT_DISPOSABLE_EMULATOR") != "yes" or len(sys.argv) != 3:
 def report_exception(kind, value, tb):
     import traceback
     traceback.print_exception(kind, value, tb)
-    print("::error::" + str(value).replace("\n", " ")[:1500], flush=True)
+    try:
+        visible = repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")])
+    except Exception:
+        visible = "unavailable"
+    print("::error::" + (str(value) + "; visible: " + visible).replace("\n", " ")[:2500], flush=True)
 
 
 sys.excepthook = report_exception

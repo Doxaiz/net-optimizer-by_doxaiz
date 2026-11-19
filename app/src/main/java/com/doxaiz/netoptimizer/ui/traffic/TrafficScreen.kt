@@ -500,8 +500,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             onDismissRequest = { pendingManualApp = null },
             title = { Text("Настроить ${app.label}?") },
             text = {
-                Column {
-                    Text("В Android выключите «Фоновые данные». На лимитных сетях это может ограничить загрузки и задержать уведомления. Настройка сохраняется до включения. Если открыт общий экран приложения, найдите раздел «Мобильные данные и Wi‑Fi». Остановка прерывает всю работу приложения.")
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Выключите в Android «Фоновые данные». На лимитных сетях это может задержать уведомления и действует до обратного включения. «Остановить» завершит всё приложение.")
                     Row(Modifier.fillMaxWidth().clickable { manualAppCompare = !manualAppCompare }, verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = manualAppCompare, onCheckedChange = { manualAppCompare = it })
                         Text("Сравнить задержку до и после")
