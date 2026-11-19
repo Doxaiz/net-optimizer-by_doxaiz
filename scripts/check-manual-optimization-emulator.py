@@ -36,12 +36,21 @@ def wait_text(text, timeout=100):
 
 
 def reveal(text):
-    for _ in range(6):
-        if any(n.attrib.get("text") == text for n in nodes()):
+    for _ in range(8):
+        current = list(nodes())
+        if any(n.attrib.get("text") == text for n in current):
             return
-        adb("shell", "input", "swipe", "540", "1650", "540", "1000", "350")
+        sizes = []
+        for n in current:
+            match = re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", ""))
+            if match:
+                sizes.append(tuple(map(int, match.groups())))
+        if not sizes:
+            raise RuntimeError("Cannot determine viewport")
+        w, height = max(sizes, key=lambda size: size[0] * size[1])
+        adb("shell", "input", "swipe", str(w // 2), str(int(height * .72)), str(w // 2), str(int(height * .48)), "350")
         time.sleep(0.5)
-    raise RuntimeError("UI element not visible: " + text + "; visible: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
+    raise RuntimeError("UI element not visible: " + text + "; visible: " + repr([(n.attrib.get("text"), n.attrib.get("bounds")) for n in nodes() if n.attrib.get("text")]))
 
 
 def open_optimization():
@@ -93,13 +102,11 @@ try:
     # Without a network, settings remain accessible, but no comparison is claimed.
     open_optimization()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    wait_text("Вернулись из настроек. Проверьте, включили ли вы экономию трафика.")
-    reveal("Исходный замер недоступен; сравнение невозможно.")
-    verify("Исходный замер недоступен; сравнение невозможно.")
+    wait_text("Проверили настройку?")
+    verify("Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android.")
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Returning without a toggle changed Data Saver")
-    reveal("Закрыть")
-    tap("Закрыть")
+    tap("Понятно")
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
     # From the main screen, measure first, toggle in Android, return and measure again.
@@ -107,8 +114,7 @@ try:
     open_optimization()
     switch_on_in_settings()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    wait_text("Вернулись из настроек. Проверьте, включили ли вы экономию трафика.")
-    reveal("Я включил — измерить снова")
+    wait_text("Проверили настройку?")
     tap("Я включил — измерить снова")
     wait_text("Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено.")
     if status() != "Restrict background status: enabled":

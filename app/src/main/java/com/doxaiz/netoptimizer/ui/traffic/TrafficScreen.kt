@@ -328,6 +328,23 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         )
     }
 
+    if (manualSettingsReturned) {
+        AlertDialog(
+            onDismissRequest = { manualSettingsReturned = false },
+            title = { Text("Проверили настройку?") },
+            text = { Text(if (optimizer.state.phase == LoadPhase.READY)
+                "Если вы включили экономию трафика в Android, можно повторить замер. Приложение не может надёжно подтвердить общесистемное состояние."
+                else "Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android.") },
+            confirmButton = {
+                if (optimizer.state.phase == LoadPhase.READY) TextButton(onClick = { measureAfterManualSettings() }) { Text("Я включил — измерить снова") }
+                else TextButton(onClick = { manualSettingsReturned = false }) { Text("Понятно") }
+            },
+            dismissButton = {
+                if (optimizer.state.phase == LoadPhase.READY) TextButton(onClick = { manualSettingsReturned = false; optimizer.clear(); optimizationMessage = "Состояние экономии трафика проверьте в настройках Android." }) { Text("Отмена") }
+            }
+        )
+    }
+
     pendingDataSaver?.let { enable ->
         AlertDialog(
             onDismissRequest = { pendingDataSaver = null },
@@ -444,9 +461,6 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         }
         item {
             LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy, dataSaverMessage, optimizationMessage, optimizationJob?.isActive == true,
-                manualSettingsReturned = manualSettingsReturned,
-                onManualMeasure = { measureAfterManualSettings() },
-                onManualDismiss = { manualSettingsReturned = false; optimizer.clear(); optimizationMessage = "Состояние экономии трафика проверьте в настройках Android." },
                 onOptimize = { pendingOptimization = true },
                 onCancelOptimization = { optimizationJob?.cancel(); optimizer.clear(); optimizationMessage = "Остановлено. Настройка могла измениться — проверьте её ниже." },
                 onDirectChange = { pendingDataSaver = it }, openDataSaver = { dataSaver.openSettings() })
@@ -571,9 +585,6 @@ private fun LoadOptimizationCard(
     dataSaverMessage: String?,
     optimizationMessage: String?,
     optimizationRunning: Boolean,
-    manualSettingsReturned: Boolean,
-    onManualMeasure: () -> Unit,
-    onManualDismiss: () -> Unit,
     onOptimize: () -> Unit,
     onCancelOptimization: () -> Unit,
     onDirectChange: (Boolean) -> Unit,
@@ -587,13 +598,6 @@ private fun LoadOptimizationCard(
             Text("Ограничение фоновых загрузок может освободить канал.", style = MaterialTheme.typography.titleSmall)
             Button(onClick = onOptimize, enabled = !dataSaverBusy && state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) { Text("Оптимизировать сеть") }
             optimizationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-            if (manualSettingsReturned) {
-                Text("Android не сообщает надёжно общесистемное состояние. Включение нужно проверить в настройках.", style = MaterialTheme.typography.bodySmall)
-                if (state.phase == LoadPhase.READY) {
-                    OutlinedButton(onClick = onManualMeasure, modifier = Modifier.fillMaxWidth()) { Text("Я включил — измерить снова") }
-                } else Text("Исходный замер недоступен; сравнение невозможно.", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = onManualDismiss) { Text("Закрыть") }
-            }
             if (optimizationRunning) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 TextButton(onClick = onCancelOptimization) { Text("Остановить") }
