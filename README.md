@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Android-12%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 12 и новее"></a>
-  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.7-00c6d7?style=flat-square" alt="Релиз 1.0.7"></a>
+  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.8-00c6d7?style=flat-square" alt="Релиз 1.0.8"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-MIT-9d80ff?style=flat-square" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/Цена-бесплатно-21c997?style=flat-square" alt="Бесплатно">
 </p>
@@ -45,7 +45,7 @@
 |---|---|
 | **Главная** | Проверка TCP-задержки до сайта Яндекса с числом ответов и возможностью отмены. |
 | **Инструменты** | Радар сигнала и доступные сведения о соте, спидтест, сравнение DNS и ручная настройка Private DNS. |
-| **Трафик** | Общая скорость мобильных интерфейсов, история расхода по приложениям и сравнение задержки до и после паузы загрузок. В готовящейся версии 1.0.8 можно сортировать историю по расходу, не отнесённому Android к foreground. Это приблизительная историческая метрика, а не активность сейчас. |
+| **Трафик** | Общая скорость мобильных интерфейсов, история расхода по приложениям и сравнение задержки до и после паузы загрузок. Можно сортировать историю по расходу, не отнесённому Android к foreground. Это приблизительная историческая метрика, а не активность сейчас. |
 | **Сессии** | Ручные замеры, локальная история, сравнение записей и экспорт CSV. |
 | **Настройки** | Вид приложения, оформление, подготовка доступов и диагностика сбоев. |
 
