@@ -31,8 +31,8 @@ def stopped():
 
 
 def fixture_uid():
-    info = adb("shell", "dumpsys", "package", fixture)
-    match = re.search(r"userId=(\d+)", info)
+    info = adb("shell", "pm", "list", "packages", "-U", fixture)
+    match = re.search(r"uid:(\d+)", info)
     if not match:
         raise RuntimeError("Could not determine fixture UID")
     return match.group(1)
@@ -44,16 +44,28 @@ def restricted(uid):
 
 
 def toggle_background_data():
-    for node in nodes():
-        a = node.attrib
-        if a.get("text", "").lower() == "background data" and a.get("enabled") == "true":
-            match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", a.get("bounds", ""))
+    for _ in range(8):
+        current = list(nodes())
+        for node in current:
+            a = node.attrib
+            if a.get("text", "").lower() == "background data" and a.get("enabled") == "true":
+                match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", a.get("bounds", ""))
+                if match:
+                    x1, y1, x2, y2 = map(int, match.groups())
+                    adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                    time.sleep(3)
+                    return
+        sizes = []
+        for node in current:
+            match = re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
             if match:
-                x1, y1, x2, y2 = map(int, match.groups())
-                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
-                time.sleep(3)
-                return
-    raise RuntimeError("Background data control not found: " + repr([n.attrib for n in nodes() if n.attrib.get("text")]))
+                sizes.append(tuple(map(int, match.groups())))
+        if not sizes:
+            raise RuntimeError("Cannot determine settings viewport")
+        width, height = max(sizes, key=lambda size: size[0] * size[1])
+        adb("shell", "input", "swipe", str(width // 2), str(int(height * .72)), str(width // 2), str(int(height * .52)), "350")
+        time.sleep(1)
+    raise RuntimeError("Background data control not found: " + repr([(n.attrib.get("text"), n.attrib.get("bounds")) for n in nodes() if n.attrib.get("text")]))
 
 
 def choose_fixture():
