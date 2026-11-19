@@ -109,14 +109,24 @@ try:
     tap("Понятно")
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
-    # From the main screen, measure first, toggle in Android, return and measure again.
-    tap("Главная")
-    open_optimization()
-    switch_on_in_settings()
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    wait_text("Проверили настройку?")
-    tap("Я включил — измерить снова")
-    wait_text("Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено.")
+    # External DNS and TCP can fail transiently on emulators. Retry baseline, never
+    # treating an unavailable measurement as an optimization success.
+    for attempt in range(3):
+        tap("Главная")
+        open_optimization()
+        if status() == "Restrict background status: disabled":
+            switch_on_in_settings()
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        wait_text("Проверили настройку?")
+        texts = {n.attrib.get("text") for n in nodes()}
+        if "Я включил — измерить снова" in texts:
+            tap("Я включил — измерить снова")
+            wait_text("Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено.")
+            break
+        if "Понятно" not in texts or attempt == 2:
+            raise RuntimeError("Baseline did not complete on the emulator")
+        tap("Понятно")
+        time.sleep(5)
     if status() != "Restrict background status: enabled":
         raise RuntimeError("Data Saver unexpectedly disabled")
     print("No Shizuku: cancel, no network, return unchanged, real Android switch and before/after passed")
