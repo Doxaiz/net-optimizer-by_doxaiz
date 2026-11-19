@@ -41,6 +41,32 @@ def wait_text(text, timeout=100):
     wait_any([text], timeout)
 
 
+def wait_comparison(texts, timeout=100):
+    until = time.monotonic() + timeout
+    count = 0
+    while time.monotonic() < until:
+        current = list(nodes())
+        found = {n.attrib.get("text") for n in current}
+        for text in texts:
+            if text in found:
+                return text
+        if count % 4 == 0:
+            sizes = []
+            for n in current:
+                match = re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", ""))
+                if match:
+                    sizes.append(tuple(map(int, match.groups())))
+            if sizes:
+                w, height = max(sizes, key=lambda size: size[0] * size[1])
+                # Alternate directions: the result can be just above or below the viewport.
+                start, end = ((.70, .48) if count % 8 == 0 else (.48, .70))
+                adb("shell", "input", "swipe", str(w // 2), str(int(height * start)), str(w // 2), str(int(height * end)), "350")
+        count += 1
+        alive()
+        time.sleep(1)
+    raise RuntimeError("Comparison result not visible; current UI: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
+
+
 def open_optimization(compare=False):
     tap("Оптимизировать сеть")
     verify("Оптимизировать сеть?")
@@ -123,7 +149,8 @@ try:
             tap("Я включил — измерить снова")
             success = "Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено."
             failure = "Повторный замер не удался. Проверьте настройку в Android."
-            compared = wait_any([success, failure]) == success
+            unavailable = "Сравнение недоступно: нет исходного замера или мобильная сеть изменилась. Состояние системной настройки не подтверждено."
+            compared = wait_comparison([success, failure, unavailable]) == success
             if not compared:
                 print("External TCP failed; no comparison claimed")
             break
