@@ -27,6 +27,6 @@ start()
 # Onboarding is persisted by the old APK and must not be shown again after updating.
 verify("ГЛАВНАЯ")
 tap("Трафик")
-verify("Фоновый трафик этого приложения: без ограничений")
+verify("Выбрать приложение для остановки")
 alive()
 print("Release update preserved onboarding and the new screen is reachable")
