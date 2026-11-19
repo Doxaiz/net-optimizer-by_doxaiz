@@ -15,8 +15,8 @@ android {
         targetSdk = 34
         // Android forbids upgrading from the old public build (versionCode 11) to a lower code.
         // The user-facing release numbering can restart independently of this monotonic value.
-        versionCode = 16
-        versionName = "1.0.3"
+        versionCode = 17
+        versionName = "1.0.4"
     }
 
     signingConfigs {
