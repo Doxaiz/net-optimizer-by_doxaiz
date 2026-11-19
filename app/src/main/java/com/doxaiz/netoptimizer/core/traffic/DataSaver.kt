@@ -38,11 +38,13 @@ internal class DataSaver(private val context: Context) {
     } catch (_: Exception) { DataSaverStatus.UNKNOWN }
 
     /** The direct action is an AOSP settings action, not a public SDK constant; use fallbacks. */
-    fun openSettings(): Boolean = DataSaverPolicy.openFirst(
+    fun openSettings(launch: ((Intent) -> Unit)? = null): Boolean = DataSaverPolicy.openFirst(
         listOf("android.settings.DATA_SAVER_SETTINGS", Settings.ACTION_WIRELESS_SETTINGS, Settings.ACTION_SETTINGS)
     ) { action ->
         try {
-            context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val intent = Intent(action)
+            if (launch != null) launch(intent)
+            else context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             true
         } catch (_: Exception) { false }
     }
