@@ -58,7 +58,7 @@ try:
     time.sleep(3)
     verify("Shizuku · не обязательно · готово")
     tap("Продолжить")
-    tap("Снизить нагрузку на сеть")
+    tap("Трафик")
     time.sleep(4)
     print("Traffic screen initially:", [(n.attrib.get("text"), n.attrib.get("bounds")) for n in h["nodes"]() if n.attrib.get("text")], flush=True)
     try:
@@ -88,5 +88,40 @@ try:
     if system_data_saver() != "Restrict background status: disabled":
         raise RuntimeError("Android did not disable Data Saver")
     print("Real Shizuku: cancel, enable, status verification and disable passed")
+
+    # Exercise the actual one-button flow on the emulator's cellular network.
+    adb("shell", "dumpsys", "battery", "set", "level", "90")
+    adb("shell", "svc", "wifi", "disable")
+    adb("shell", "svc", "data", "disable")
+    time.sleep(6)
+    tap("Главная")
+    tap("Оптимизировать сеть")
+    verify("Оптимизировать сеть?")
+    tap("Отмена")
+    if system_data_saver() != "Restrict background status: disabled":
+        raise RuntimeError("Cancel unexpectedly enabled Data Saver")
+    tap("Оптимизировать сеть")
+    tap("Начать")
+    verify("Подключите мобильный интернет; без него замер недоступен. Настройка не изменена.")
+    if system_data_saver() != "Restrict background status: disabled":
+        raise RuntimeError("Offline optimization unexpectedly changed Data Saver")
+    adb("shell", "svc", "data", "enable")
+    time.sleep(10)
+    tap("Оптимизировать сеть")
+    tap("Начать")
+    deadline = time.monotonic() + 100
+    last_text = []
+    while time.monotonic() < deadline:
+        last_text = [n.attrib.get("text", "") for n in h["nodes"]()]
+        if "Экономия трафика включена. Сравнение — ниже." in last_text:
+            break
+        if any("Настройка не изменена." in text or "Не удалось" in text for text in last_text):
+            raise RuntimeError("One-button flow failed: " + repr(last_text))
+        time.sleep(1)
+    else:
+        raise RuntimeError("One-button flow did not finish: " + repr(last_text))
+    if system_data_saver() != "Restrict background status: enabled":
+        raise RuntimeError("One-button flow did not enable Data Saver")
+    print("One-button flow confirmed, measured twice and enabled Android Data Saver")
 finally:
     adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false", check=False)

@@ -19,7 +19,7 @@ try:
     install(sys.argv[1])
     start()
     tap("Продолжить")
-    tap("Снизить нагрузку на сеть")
+    tap("Трафик")
     verify("Фоновый трафик этого приложения: без ограничений")
     # Emulator display sizes differ: infer actual bounds, then scroll in short steps.
     bounds = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in h["nodes"]()]

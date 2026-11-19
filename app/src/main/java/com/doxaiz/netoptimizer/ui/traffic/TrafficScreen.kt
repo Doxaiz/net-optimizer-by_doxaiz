@@ -39,6 +39,9 @@ import com.doxaiz.netoptimizer.core.traffic.LoadComparison
 import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
 import com.doxaiz.netoptimizer.core.traffic.LoadPhase
 import com.doxaiz.netoptimizer.core.traffic.LoadSample
+import com.doxaiz.netoptimizer.core.traffic.OneTapOptimization
+import com.doxaiz.netoptimizer.core.traffic.OneTapOperations
+import com.doxaiz.netoptimizer.core.traffic.OneTapResult
 import com.doxaiz.netoptimizer.core.traffic.DataSaver
 import com.doxaiz.netoptimizer.core.traffic.DataSaverStatus
 import com.doxaiz.netoptimizer.core.traffic.saturatedAdd
@@ -51,6 +54,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -59,7 +63,7 @@ import java.util.Locale
 private class StopHalted(message: String) : Exception(message)
 
 @Composable
-fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
+fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRequested: Boolean = false, onRequestConsumed: () -> Unit = {}) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val details = expert || expanded
     val context = LocalContext.current
@@ -74,6 +78,9 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
     var pendingDataSaver by remember { mutableStateOf<Boolean?>(null) }
     var dataSaverBusy by remember { mutableStateOf(false) }
     var dataSaverMessage by remember { mutableStateOf<String?>(null) }
+    var pendingOptimization by remember { mutableStateOf(false) }
+    var optimizationMessage by remember { mutableStateOf<String?>(null) }
+    var optimizationJob by remember { mutableStateOf<Job?>(null) }
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
@@ -98,7 +105,11 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                 Lifecycle.Event.ON_STOP -> {
                     foreground = false
                     optimizer.onStop()
-                    pendingStop = null; pendingBatch = false; pendingDataSaver = null
+                    pendingStop = null; pendingBatch = false; pendingDataSaver = null; pendingOptimization = false
+                    if (optimizationJob?.isActive == true) {
+                        optimizationJob?.cancel()
+                        optimizationMessage = "Оптимизация прервана. Настройка могла измениться — проверьте её ниже."
+                    } else optimizationMessage = null
                     if (stopping) {
                         stopJob?.cancel()
                         notice = "Оставшиеся команды отменены. Уже запущенная команда могла выполниться."
@@ -108,7 +119,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); stopJob?.cancel(); optimizer.clear() }
+        onDispose { lifecycle.removeObserver(observer); optimizationJob?.cancel(); stopJob?.cancel(); optimizer.clear() }
+    }
+    LaunchedEffect(optimizationRequested) {
+        if (optimizationRequested) {
+            pendingOptimization = true
+            onRequestConsumed()
+        }
     }
     LaunchedEffect(foreground, shizukuReady) {
         globalDataSaver = if (foreground && shizukuReady) ShizukuManager.globalDataSaverEnabled() else null
@@ -172,6 +189,76 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
         }
     }
 
+    fun startOptimization() {
+        if (dataSaverBusy || optimizationJob?.isActive == true) return
+        dataSaverBusy = true
+        optimizationMessage = "Измеряем задержку до изменений…"
+        optimizationJob = scope.launch {
+            try {
+                optimizer.start()
+                val baselinePhase = snapshotFlow { optimizer.state.phase }
+                    .first { it == LoadPhase.READY || it == LoadPhase.IDLE }
+                if (baselinePhase != LoadPhase.READY) {
+                    optimizationMessage = (optimizer.state.message.ifEmpty { "Исходный замер не удался." }) + " Настройка не изменена."
+                    return@launch
+                }
+                optimizationMessage = "Проверяем и ограничиваем фоновые загрузки…"
+                val result = OneTapOptimization.apply(object : OneTapOperations {
+                    override fun canContinue() = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                        ShizukuManager.isReady() && optimizer.canApplyChange()
+                    override suspend fun readGlobalSetting() = ShizukuManager.globalDataSaverEnabled()
+                    override suspend fun enableDataSaver() = ShizukuManager.setDataSaver(true)
+                })
+                globalDataSaver = ShizukuManager.globalDataSaverEnabled()
+                dataSaverStatus = dataSaver.status()
+                when (result) {
+                    OneTapResult.ENABLED -> {
+                        optimizationMessage = "Фоновые загрузки ограничены. Повторяем замер…"
+                        delay(1_000)
+                        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) || !optimizer.canApplyChange()) {
+                            optimizationMessage = "Настройка включена, но сравнение прервано. Проверить или выключить её можно ниже."
+                            return@launch
+                        }
+                        optimizer.measureAfter()
+                        val finalPhase = snapshotFlow { optimizer.state.phase }
+                            .first { it == LoadPhase.RESULT || it == LoadPhase.READY || it == LoadPhase.IDLE }
+                        optimizationMessage = if (finalPhase == LoadPhase.RESULT)
+                            "Экономия трафика включена. Сравнение — ниже."
+                        else "Настройка включена, но повторный замер не удался."
+                    }
+                    OneTapResult.ALREADY_ENABLED -> optimizationMessage = "Экономия трафика уже была включена. Новых изменений нет."
+                    OneTapResult.UNAVAILABLE -> optimizationMessage = "Не удалось проверить настройку. Изменений нет."
+                    OneTapResult.UNCONFIRMED -> optimizationMessage = "Не удалось подтвердить изменение. Проверьте настройку ниже."
+                    OneTapResult.INTERRUPTED -> optimizationMessage = "Оптимизация прервана. Настройка могла измениться — проверьте её ниже."
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                optimizationMessage = "Не удалось завершить оптимизацию. Проверьте настройку ниже."
+            } finally {
+                dataSaverBusy = false
+                optimizationJob = null
+            }
+        }
+    }
+
+    if (pendingOptimization) {
+        val ready = ShizukuManager.isReady()
+        AlertDialog(
+            onDismissRequest = { pendingOptimization = false },
+            title = { Text(if (ready) "Оптимизировать сеть?" else "Нужен Shizuku") },
+            text = { Text(if (ready)
+                "Измерим задержку, включим системную экономию трафика и повторим замер. Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi. Уведомления могут задерживаться. Настройка останется включённой, пока вы её не выключите. Улучшение не гарантировано."
+                else "Для автоматического ограничения загрузок подключите Shizuku в настройках приложения. Без него можно включить экономию трафика вручную в Android.") },
+            confirmButton = { TextButton(onClick = {
+                pendingOptimization = false
+                if (ready) startOptimization()
+                else if (!dataSaver.openSettings()) optimizationMessage = "Откройте экономию трафика в настройках Android вручную."
+            }) { Text(if (ready) "Начать" else "Настройки Android") } },
+            dismissButton = { TextButton(onClick = { pendingOptimization = false }) { Text("Отмена") } }
+        )
+    }
+
     pendingDataSaver?.let { enable ->
         AlertDialog(
             onDismissRequest = { pendingDataSaver = null },
@@ -183,6 +270,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
                 pendingDataSaver = null
                 dataSaverBusy = true
                 dataSaverMessage = null
+                optimizationMessage = null
                 scope.launch {
                     try {
                         val current = ShizukuManager.globalDataSaverEnabled()
@@ -286,7 +374,9 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean) {
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
         item {
-            LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy, dataSaverMessage,
+            LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy, dataSaverMessage, optimizationMessage, optimizationJob?.isActive == true,
+                onOptimize = { pendingOptimization = true },
+                onCancelOptimization = { optimizationJob?.cancel(); optimizer.clear(); optimizationMessage = "Остановлено. Настройка могла измениться — проверьте её ниже." },
                 onDirectChange = { pendingDataSaver = it }, openDataSaver = dataSaver::openSettings)
         }
         item {
@@ -407,6 +497,10 @@ private fun LoadOptimizationCard(
     globalDataSaver: Boolean?,
     dataSaverBusy: Boolean,
     dataSaverMessage: String?,
+    optimizationMessage: String?,
+    optimizationRunning: Boolean,
+    onOptimize: () -> Unit,
+    onCancelOptimization: () -> Unit,
     onDirectChange: (Boolean) -> Unit,
     openDataSaver: () -> Boolean
 ) {
@@ -415,13 +509,13 @@ private fun LoadOptimizationCard(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("СНИЗИТЬ НАГРУЗКУ НА СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text(when (state.phase) {
-                LoadPhase.IDLE -> "Шаг 1: измерьте задержку до изменений."
-                LoadPhase.BASELINE -> "Измеряем задержку до изменений…"
-                LoadPhase.READY -> "Шаг 2: приостановите ненужные загрузки, затем измерьте снова."
-                LoadPhase.CHECKING -> "Измеряем задержку после изменений…"
-                LoadPhase.RESULT -> "Сравнение готово"
-            }, style = MaterialTheme.typography.titleSmall)
+            Text("Ограничение фоновых загрузок может освободить канал.", style = MaterialTheme.typography.titleSmall)
+            Button(onClick = onOptimize, enabled = !dataSaverBusy && state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) { Text("Оптимизировать сеть") }
+            optimizationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+            if (optimizationRunning) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                TextButton(onClick = onCancelOptimization) { Text("Остановить") }
+            }
             state.before?.let { Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium) }
             state.after?.let { after ->
                 Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)
@@ -441,14 +535,16 @@ private fun LoadOptimizationCard(
                 }
                 Text("Это разница двух замеров, причина изменения неизвестна.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (state.message.isNotEmpty() && (details || state.phase == LoadPhase.IDLE || state.phase == LoadPhase.READY))
+            if (!optimizationRunning && details && state.message.isNotEmpty())
                 Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            when (state.phase) {
-                LoadPhase.IDLE -> Button(onClick = controller::start, modifier = Modifier.fillMaxWidth()) { Text("Начать сравнение") }
-                LoadPhase.BASELINE, LoadPhase.CHECKING -> LinearProgressIndicator(Modifier.fillMaxWidth())
-                LoadPhase.READY, LoadPhase.RESULT -> Button(onClick = controller::measureAfter, modifier = Modifier.fillMaxWidth()) { Text("Измерить после изменений") }
+            if (!optimizationRunning && details) {
+                when (state.phase) {
+                    LoadPhase.IDLE -> OutlinedButton(onClick = controller::start, enabled = !dataSaverBusy, modifier = Modifier.fillMaxWidth()) { Text("Начать сравнение") }
+                    LoadPhase.BASELINE, LoadPhase.CHECKING -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                    LoadPhase.READY, LoadPhase.RESULT -> OutlinedButton(onClick = controller::measureAfter, enabled = !dataSaverBusy, modifier = Modifier.fillMaxWidth()) { Text("Измерить после изменений") }
+                }
+                if (state.phase != LoadPhase.IDLE) TextButton(onClick = { controller.clear() }, enabled = !dataSaverBusy) { Text(if (state.phase == LoadPhase.BASELINE || state.phase == LoadPhase.CHECKING) "Отменить" else "Начать заново") }
             }
-            if (state.phase != LoadPhase.IDLE) TextButton(onClick = { controller.clear() }) { Text(if (state.phase == LoadPhase.BASELINE || state.phase == LoadPhase.CHECKING) "Отменить" else "Начать заново") }
             HorizontalDivider()
             Text("Фоновый трафик этого приложения: " + when (dataSaverStatus) {
                 DataSaverStatus.OFF -> "без ограничений"

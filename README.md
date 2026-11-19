@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Android-12%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 12 и новее"></a>
-  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.2-00c6d7?style=flat-square" alt="Релиз 1.0.2"></a>
+  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.3-00c6d7?style=flat-square" alt="Релиз 1.0.3"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-MIT-9d80ff?style=flat-square" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/Цена-бесплатно-21c997?style=flat-square" alt="Бесплатно">
 </p>
@@ -34,7 +34,7 @@
 1. Скачайте `app-release.apk` на странице [последнего релиза](https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest) и установите на Android 12 или новее.
 2. Выберите **обычный** или **экспертный** вид. Разрешения можно выдать сразу или позже в настройках.
 3. Включите мобильный интернет и нажмите **«Проверить связь»** на главной. Приложение покажет ход проверки и результат.
-4. Откройте **«Снизить нагрузку на сеть»**, начните сравнение, настройте системную экономию трафика или приостановите ненужные загрузки, затем повторите замер.
+4. Кнопка **«Оптимизировать сеть»** с подключённым Shizuku после подтверждения измеряет задержку, включает системную экономию трафика и повторяет замер. Без Shizuku можно включить её вручную в настройках Android. Результат зависит от условий и не гарантирован.
 
 При обновлении сохраните важную историю, если это возможно. Установка поверх старой версии зависит от подписи, версии и настроек телефона. Результат на конкретном устройстве не гарантирован.
 

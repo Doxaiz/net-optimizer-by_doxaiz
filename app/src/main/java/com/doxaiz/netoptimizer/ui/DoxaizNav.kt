@@ -81,6 +81,7 @@ private val tabs = listOf(
 fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit, interfaceMode: InterfaceMode, onInterfaceModeChange: (InterfaceMode) -> Unit) {
     var setupOpen by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf(0) }
+    var optimizeRequested by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val monitor = remember { SignalMonitor(context) }
@@ -145,7 +146,7 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit, interfaceMode: Interface
                 tabs.forEachIndexed { index, tab ->
                     NavigationBarItem(
                         selected = selected == index,
-                        onClick = { selected = index },
+                        onClick = { optimizeRequested = false; selected = index },
                         icon = {
                             val measuring = index == 3 && session.state.phase == SessionPhase.RUNNING
                             BadgedBox(badge = { if (measuring) Badge() }) {
@@ -175,9 +176,10 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit, interfaceMode: Interface
             label = "tabTransition"
         ) { tab ->
             when (tab) {
-                0 -> HomeScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock, onOptimize = { selected = 2 }, expert = interfaceMode == InterfaceMode.EXPERT)
+                0 -> HomeScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock, onOptimize = { optimizeRequested = true; selected = 2 }, expert = interfaceMode == InterfaceMode.EXPERT)
                 1 -> ToolsScreen(modifier = Modifier.padding(padding), monitor = monitor, foregroundSinceMs = foregroundSince, nowMs = batteryClock, expert = interfaceMode == InterfaceMode.EXPERT)
-                2 -> TrafficScreen(modifier = Modifier.padding(padding), expert = interfaceMode == InterfaceMode.EXPERT)
+                2 -> TrafficScreen(modifier = Modifier.padding(padding), expert = interfaceMode == InterfaceMode.EXPERT,
+                    optimizationRequested = optimizeRequested, onRequestConsumed = { optimizeRequested = false })
                 3 -> SessionsScreen(
                     modifier = Modifier.padding(padding),
                     controller = session,
