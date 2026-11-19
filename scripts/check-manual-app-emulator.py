@@ -101,7 +101,27 @@ def wait_comparison(texts, timeout=100):
     raise RuntimeError("Comparison result not visible: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
 
 
+def reveal_top_button(label):
+    for attempt in range(12):
+        current = list(nodes())
+        if any(n.attrib.get("text") == label for n in current):
+            return
+        sizes = []
+        for node in current:
+            match = re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+            if match:
+                sizes.append(tuple(map(int, match.groups())))
+        if not sizes:
+            raise RuntimeError("Cannot determine app viewport")
+        w, height = max(sizes, key=lambda size: size[0] * size[1])
+        start, end = ((.48, .72) if attempt < 6 else (.72, .52))
+        adb("shell", "input", "swipe", str(w // 2), str(int(height * start)), str(w // 2), str(int(height * end)), "350")
+        time.sleep(.5)
+    raise RuntimeError("Cannot find " + label + "; visible: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
+
+
 def choose_fixture():
+    reveal_top_button("Настроить фон приложений")
     tap("Настроить фон приложений")
     verify("Выберите приложение")
     tap("Поиск приложений")
