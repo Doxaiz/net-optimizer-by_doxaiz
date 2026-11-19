@@ -30,8 +30,34 @@ def stopped():
     return match.group(1) == "true"
 
 
+def fixture_uid():
+    info = adb("shell", "dumpsys", "package", fixture)
+    match = re.search(r"userId=(\d+)", info)
+    if not match:
+        raise RuntimeError("Could not determine fixture UID")
+    return match.group(1)
+
+
+def restricted(uid):
+    output = adb("shell", "cmd", "netpolicy", "list", "restrict-background-blacklist")
+    return re.search(r"(?<!\d)" + re.escape(uid) + r"(?!\d)", output) is not None
+
+
+def toggle_background_data():
+    for node in nodes():
+        a = node.attrib
+        if a.get("text", "").lower() == "background data" and a.get("enabled") == "true":
+            match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", a.get("bounds", ""))
+            if match:
+                x1, y1, x2, y2 = map(int, match.groups())
+                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                time.sleep(3)
+                return
+    raise RuntimeError("Background data control not found: " + repr([n.attrib for n in nodes() if n.attrib.get("text")]))
+
+
 def choose_fixture():
-    tap("Выбрать приложение для остановки")
+    tap("Настроить фон приложений")
     verify("Выберите приложение")
     tap("Поиск приложений")
     adb("shell", "input", "text", "Network")
@@ -40,7 +66,7 @@ def choose_fixture():
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     verify("Network Fixture")
     tap("Network Fixture")
-    verify("Открыть Network Fixture?")
+    verify("Настроить Network Fixture?")
 
 
 adb("uninstall", h["PACKAGE"], check=False)
@@ -60,10 +86,36 @@ try:
     # No usage permission, network or Shizuku needed; cancellation makes no change.
     choose_fixture()
     tap("Отмена")
-    if stopped():
-        raise RuntimeError("Cancellation stopped the fixture")
+    uid = fixture_uid()
+    if stopped() or restricted(uid):
+        raise RuntimeError("Cancellation changed the fixture")
     choose_fixture()
-    tap("Открыть настройки")
+    tap("Настроить фон")
+    focus = adb("shell", "dumpsys", "activity", "activities")
+    if "com.android.settings" not in focus:
+        raise RuntimeError("Android app data settings did not open")
+    verify("Network Fixture")
+    if stopped() or restricted(uid):
+        raise RuntimeError("Opening data settings changed the fixture")
+    toggle_background_data()
+    if not restricted(uid):
+        raise RuntimeError("Android did not apply per-app metered background restriction")
+    if stopped():
+        raise RuntimeError("Background restriction stopped the fixture")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(2)
+    if not restricted(uid):
+        raise RuntimeError("Restriction did not persist after returning")
+    choose_fixture()
+    tap("Настроить фон")
+    verify("Network Fixture")
+    toggle_background_data()
+    if restricted(uid):
+        raise RuntimeError("Android did not remove per-app restriction")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(2)
+    choose_fixture()
+    tap("Остановить")
     focus = adb("shell", "dumpsys", "activity", "activities")
     if "com.android.settings" not in focus:
         raise RuntimeError("Android application settings did not open")
@@ -93,7 +145,7 @@ try:
     time.sleep(2)
     if not stopped():
         raise RuntimeError("Android did not stop the fixture after user confirmation")
-    print("Without Shizuku, usage access or network: search, cancel, app details and Android force stop passed")
+    print("Without Shizuku, usage access or network: search, cancel, per-app background restriction and restore, Android force stop passed")
 finally:
     adb("uninstall", fixture, check=False)
     adb("shell", "svc", "data", "enable", check=False)
