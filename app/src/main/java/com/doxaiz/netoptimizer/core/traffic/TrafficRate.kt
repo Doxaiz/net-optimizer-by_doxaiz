@@ -16,16 +16,33 @@ object TrafficRate {
     }
 }
 
-/** Aggregate NetworkStats' separate state/metered/roaming buckets without duplicating UIDs. */
+/** DEFAULT is Android's "not accounted in another state", not a live background detector. */
+internal enum class TrafficBucketState { DEFAULT, FOREGROUND, UNKNOWN }
+
+internal data class TrafficAmounts(
+    val rx: Long = 0,
+    val tx: Long = 0,
+    val defaultBytes: Long = 0,
+    val stateComplete: Boolean = true
+) {
+    val outsideForeground: Long? get() = defaultBytes.takeIf { stateComplete }
+}
+
+/** Aggregate separate state/metered/roaming buckets; unknown state is never presented as zero. */
 internal class TrafficTotals {
-    private val values = mutableMapOf<Int, Pair<Long, Long>>()
-    fun add(uid: Int, rx: Long, tx: Long): Boolean {
+    private val values = mutableMapOf<Int, TrafficAmounts>()
+    fun add(uid: Int, rx: Long, tx: Long, state: TrafficBucketState): Boolean {
         if (rx < 0 || tx < 0) return false
-        val old = values[uid] ?: (0L to 0L)
-        values[uid] = saturatedAdd(old.first, rx) to saturatedAdd(old.second, tx)
+        val old = values[uid] ?: TrafficAmounts()
+        values[uid] = TrafficAmounts(
+            rx = saturatedAdd(old.rx, rx),
+            tx = saturatedAdd(old.tx, tx),
+            defaultBytes = if (state == TrafficBucketState.DEFAULT) saturatedAdd(old.defaultBytes, saturatedAdd(rx, tx)) else old.defaultBytes,
+            stateComplete = old.stateComplete && state != TrafficBucketState.UNKNOWN
+        )
         return true
     }
-    fun snapshot(): Map<Int, Pair<Long, Long>> = values.toMap()
+    fun snapshot(): Map<Int, TrafficAmounts> = values.toMap()
 }
 
 internal fun saturatedAdd(a: Long, b: Long): Long = if (a > Long.MAX_VALUE - b) Long.MAX_VALUE else a + b

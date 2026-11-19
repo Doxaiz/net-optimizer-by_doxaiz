@@ -30,7 +30,8 @@ data class AppTraffic(
     val packageNames: List<String>,
     val rxBytes: Long,
     val txBytes: Long,
-    val systemProtected: Boolean
+    val systemProtected: Boolean,
+    val outsideForegroundBytes: Long? = null
 ) {
     val totalBytes: Long get() = saturatedAdd(rxBytes, txBytes)
 }
@@ -94,7 +95,12 @@ class TrafficMonitor(private val context: Context) {
                 while (it.hasNextBucket()) {
                     currentCoroutineContext().ensureActive()
                     if (!it.getNextBucket(bucket)) return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
-                    if (!totals.add(bucket.uid, bucket.rxBytes, bucket.txBytes)) return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
+                    val state = when (bucket.state) {
+                        NetworkStats.Bucket.STATE_DEFAULT -> TrafficBucketState.DEFAULT
+                        NetworkStats.Bucket.STATE_FOREGROUND -> TrafficBucketState.FOREGROUND
+                        else -> TrafficBucketState.UNKNOWN
+                    }
+                    if (!totals.add(bucket.uid, bucket.rxBytes, bucket.txBytes, state)) return@withContext TrafficSummary(TrafficSummaryStatus.UNAVAILABLE)
                 }
             }
             currentCoroutineContext().ensureActive()
@@ -102,7 +108,7 @@ class TrafficMonitor(private val context: Context) {
             val pm = context.packageManager
             val apps = totals.snapshot().mapNotNull { (uid, amount) ->
                 currentCoroutineContext().ensureActive()
-                if (amount.first == 0L && amount.second == 0L) return@mapNotNull null
+                if (amount.rx == 0L && amount.tx == 0L) return@mapNotNull null
                 val packages = if (uid >= 0) (pm.getPackagesForUid(uid)?.toList() ?: emptyList()).sorted() else emptyList()
                 val info = if (packages.size == 1) try { pm.getApplicationInfo(packages.first(), 0) } catch (_: Exception) { null } else null
                 val label = when {
@@ -114,7 +120,7 @@ class TrafficMonitor(private val context: Context) {
                 }
                 val automaticProtection = packages.size != 1 || info == null || uid == Process.myUid() ||
                     packages.any { it in protectedPackages } || (info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
-                AppTraffic(uid, label, packages, amount.first, amount.second, automaticProtection)
+                AppTraffic(uid, label, packages, amount.rx, amount.tx, automaticProtection, amount.outsideForeground)
             }.sortedByDescending { it.totalBytes }
             TrafficSummary(TrafficSummaryStatus.READY, apps, window)
         } catch (e: kotlinx.coroutines.CancellationException) {
