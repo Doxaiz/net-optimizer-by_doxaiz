@@ -43,6 +43,7 @@ import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
 import com.doxaiz.netoptimizer.core.traffic.LoadPhase
 import com.doxaiz.netoptimizer.core.traffic.LoadSample
 import com.doxaiz.netoptimizer.core.traffic.ManualAppSearch
+import com.doxaiz.netoptimizer.core.traffic.ManualSettingsDestination
 import com.doxaiz.netoptimizer.core.traffic.OneTapOptimization
 import com.doxaiz.netoptimizer.core.traffic.OneTapOperations
 import com.doxaiz.netoptimizer.core.traffic.OneTapResult
@@ -379,6 +380,31 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         )
     }
 
+    fun openManualApp(app: StopTarget, backgroundData: Boolean) {
+        pendingManualApp = null
+        if (manualAppBusy) return
+        manualAppBusy = true
+        manualAppJob = scope.launch {
+            try {
+                val allowed = monitor.canStopNow(app)
+                currentCoroutineContext().ensureActive()
+                manualAppNotice = when {
+                    !allowed -> "Приложение защищено или изменилось; настройки не открыты."
+                    !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) -> "Действие отменено."
+                    backgroundData -> when (monitor.openBackgroundDataSettings(app.packageName)) {
+                        ManualSettingsDestination.DATA_USAGE -> "Проверьте имя приложения в Android и выключите «Фоновые данные». Изменение не подтверждено."
+                        ManualSettingsDestination.APP_DETAILS -> "Откройте «Мобильные данные и Wi‑Fi» в карточке приложения и выключите «Фоновые данные». Изменение не подтверждено."
+                        ManualSettingsDestination.UNAVAILABLE -> "Не удалось открыть настройки приложения."
+                    }
+                    monitor.openAppSettings(app.packageName) -> "В Android нажмите «Остановить», если хотите. Остановка не подтверждена."
+                    else -> "Не удалось открыть настройки приложения."
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { manualAppNotice = "Не удалось открыть настройки приложения." }
+            finally { manualAppBusy = false; manualAppJob = null }
+        }
+    }
+
     if (manualPickerOpen) {
         val found = manualApps.orEmpty().filter { ManualAppSearch.matches(it, manualAppQuery) }
         AlertDialog(
@@ -386,7 +412,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             title = { Text("Выберите приложение") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Выберите приложение с ненужной загрузкой. Список не показывает текущую активность.", style = MaterialTheme.typography.bodySmall)
+                    Text("Выберите приложение. Список не показывает текущую сетевую активность.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(value = manualAppQuery, onValueChange = { manualAppQuery = it }, singleLine = true,
                         label = { Text("Поиск приложений") }, modifier = Modifier.fillMaxWidth())
                     when {
@@ -413,29 +439,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     pendingManualApp?.let { app ->
         AlertDialog(
             onDismissRequest = { pendingManualApp = null },
-            title = { Text("Открыть ${app.label}?") },
-            text = { Text("В настройках Android можно вручную остановить приложение. Это остановит его целиком и может прервать загрузки и уведомления. Мы не знаем, использует ли оно сеть сейчас.") },
-            confirmButton = { TextButton(onClick = {
-                pendingManualApp = null
-                if (!manualAppBusy) {
-                    manualAppBusy = true
-                    manualAppJob = scope.launch {
-                        try {
-                            val allowed = monitor.canStopNow(app)
-                            currentCoroutineContext().ensureActive()
-                            manualAppNotice = when {
-                                !allowed -> "Приложение защищено или изменилось; настройки не открыты."
-                                !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) -> "Действие отменено."
-                                monitor.openAppSettings(app.packageName) -> "В Android нажмите «Остановить», если хотите. Остановка не подтверждена."
-                                else -> "Не удалось открыть настройки приложения."
-                            }
-                        } catch (e: CancellationException) { throw e }
-                        catch (_: Exception) { manualAppNotice = "Не удалось открыть настройки приложения." }
-                        finally { manualAppBusy = false; manualAppJob = null }
-                    }
-                }
-            }) { Text("Открыть настройки") } },
-            dismissButton = { TextButton(onClick = { pendingManualApp = null }) { Text("Отмена") } }
+            title = { Text("Настроить ${app.label}?") },
+            text = { Text("В Android проверьте имя приложения и выключите «Фоновые данные». Это может ограничить фоновые загрузки на лимитных сетях и задержать уведомления. Настройка остаётся до ручного включения. Если её нет, найдите раздел «Мобильные данные и Wi‑Fi» в карточке приложения.\n\nДругой вариант — остановить приложение целиком; это прервёт его работу и загрузки.") },
+            confirmButton = { TextButton(onClick = { openManualApp(app, backgroundData = true) }) { Text("Настроить фон") } },
+            dismissButton = { Row {
+                TextButton(onClick = { openManualApp(app, backgroundData = false) }) { Text("Остановить") }
+                TextButton(onClick = { pendingManualApp = null }) { Text("Отмена") }
+            } }
         )
     }
 
@@ -696,7 +706,7 @@ private fun LoadOptimizationCard(
             Text("СНИЗИТЬ НАГРУЗКУ НА СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("Ограничение фоновых загрузок может освободить канал.", style = MaterialTheme.typography.titleSmall)
             Button(onClick = onOptimize, enabled = !dataSaverBusy && state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) { Text("Оптимизировать сеть") }
-            OutlinedButton(onClick = onManualApps, enabled = !manualAppBusy && !dataSaverBusy, modifier = Modifier.fillMaxWidth()) { Text("Выбрать приложение для остановки") }
+            OutlinedButton(onClick = onManualApps, enabled = !manualAppBusy && !dataSaverBusy, modifier = Modifier.fillMaxWidth()) { Text("Настроить фон приложений") }
             manualAppNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             optimizationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             if (optimizationRunning) {

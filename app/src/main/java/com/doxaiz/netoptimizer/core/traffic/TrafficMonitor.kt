@@ -162,6 +162,19 @@ class TrafficMonitor(private val context: Context) {
     }
 
     fun openUsageAccess(): Boolean = open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+
+    /** This opens a user-controlled Android screen; it does not change or verify policy. */
+    internal fun openBackgroundDataSettings(packageName: String): ManualSettingsDestination =
+        ManualSettingsPolicy.openBackgroundSettings { destination ->
+            when (destination) {
+                ManualSettingsDestination.DATA_USAGE -> open(Intent(Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS).apply {
+                    data = android.net.Uri.fromParts("package", packageName, null)
+                })
+                ManualSettingsDestination.APP_DETAILS -> openAppSettings(packageName)
+                ManualSettingsDestination.UNAVAILABLE -> false
+            }
+        }
+
     fun openAppSettings(packageName: String): Boolean = open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = android.net.Uri.parse("package:$packageName")
     })

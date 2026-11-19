@@ -21,12 +21,12 @@ tap("Продолжить")
 verify("ГЛАВНАЯ")
 install(sys.argv[2], replace=True)
 info = adb("shell", "dumpsys", "package", package)
-if not re.search(r"versionCode=18\b", info):
-    raise RuntimeError("Updated package is not versionCode 18")
+if not re.search(r"versionCode=19\b", info):
+    raise RuntimeError("Updated package is not versionCode 19")
 start()
 # Onboarding is persisted by the old APK and must not be shown again after updating.
 verify("ГЛАВНАЯ")
 tap("Трафик")
-verify("Выбрать приложение для остановки")
+verify("Настроить фон приложений")
 alive()
 print("Release update preserved onboarding and the new screen is reachable")
