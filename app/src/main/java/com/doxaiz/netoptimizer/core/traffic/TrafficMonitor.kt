@@ -164,22 +164,22 @@ class TrafficMonitor(private val context: Context) {
     fun openUsageAccess(): Boolean = open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
 
     /** This opens a user-controlled Android screen; it does not change or verify policy. */
-    internal fun openBackgroundDataSettings(packageName: String): ManualSettingsDestination =
+    internal fun openBackgroundDataSettings(packageName: String, launch: ((Intent) -> Unit)? = null): ManualSettingsDestination =
         ManualSettingsPolicy.openBackgroundSettings { destination ->
             when (destination) {
                 ManualSettingsDestination.DATA_USAGE -> open(Intent(Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS).apply {
                     data = android.net.Uri.fromParts("package", packageName, null)
-                })
-                ManualSettingsDestination.APP_DETAILS -> openAppSettings(packageName)
+                }, launch)
+                ManualSettingsDestination.APP_DETAILS -> openAppSettings(packageName, launch)
                 ManualSettingsDestination.UNAVAILABLE -> false
             }
         }
 
-    fun openAppSettings(packageName: String): Boolean = open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+    fun openAppSettings(packageName: String, launch: ((Intent) -> Unit)? = null): Boolean = open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = android.net.Uri.parse("package:$packageName")
-    })
-    private fun open(intent: Intent): Boolean = try {
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }, launch)
+    private fun open(intent: Intent, launch: ((Intent) -> Unit)? = null): Boolean = try {
+        if (launch != null) launch(intent) else context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         true
     } catch (_: Exception) { false }
 }

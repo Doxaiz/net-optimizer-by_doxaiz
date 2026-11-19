@@ -68,6 +68,39 @@ def toggle_background_data():
     raise RuntimeError("Background data control not found: " + repr([(n.attrib.get("text"), n.attrib.get("bounds")) for n in nodes() if n.attrib.get("text")]))
 
 
+def wait_settings(timeout=100):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if "com.android.settings" in adb("shell", "dumpsys", "activity", "activities"):
+            return
+        time.sleep(1)
+    raise RuntimeError("Android app settings did not open")
+
+
+def wait_comparison(texts, timeout=100):
+    deadline = time.monotonic() + timeout
+    step = 0
+    while time.monotonic() < deadline:
+        current = list(nodes())
+        found = {n.attrib.get("text") for n in current}
+        for text in texts:
+            if text in found:
+                return text
+        if step % 5 == 0:
+            sizes = []
+            for n in current:
+                m = re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", ""))
+                if m:
+                    sizes.append(tuple(map(int, m.groups())))
+            if sizes:
+                w, height = max(sizes, key=lambda s: s[0] * s[1])
+                start, end = ((.70, .48) if step % 10 == 0 else (.48, .70))
+                adb("shell", "input", "swipe", str(w // 2), str(int(height * start)), str(w // 2), str(int(height * end)), "350")
+        step += 1
+        time.sleep(1)
+    raise RuntimeError("Comparison result not visible: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
+
+
 def choose_fixture():
     tap("Настроить фон приложений")
     verify("Выберите приложение")
@@ -88,6 +121,7 @@ try:
     install(sys.argv[2])
     adb("shell", "svc", "wifi", "disable")
     adb("shell", "svc", "data", "disable")
+    adb("shell", "dumpsys", "battery", "set", "level", "10")
     adb("shell", "appops", "set", h["PACKAGE"], "GET_USAGE_STATS", "ignore")
     adb("shell", "am", "start", "-W", "-n", fixture + "/.MainActivity")
     if stopped():
@@ -102,6 +136,8 @@ try:
     if stopped() or restricted(uid):
         raise RuntimeError("Cancellation changed the fixture")
     choose_fixture()
+    # Even when an optional baseline cannot run, the user can change the setting.
+    tap("Сравнить задержку до и после")
     tap("Настроить фон")
     focus = adb("shell", "dumpsys", "activity", "activities")
     if "com.android.settings" not in focus:
@@ -116,6 +152,9 @@ try:
         raise RuntimeError("Background restriction stopped the fixture")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     time.sleep(2)
+    verify("Сравнить задержку?")
+    verify("Исходный замер недоступен или сеть изменилась. Настройку фоновых данных проверьте в Android.")
+    tap("Понятно")
     if not restricted(uid):
         raise RuntimeError("Restriction did not persist after returning")
     choose_fixture()
@@ -126,6 +165,36 @@ try:
         raise RuntimeError("Android did not remove per-app restriction")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     time.sleep(2)
+    # Try a comparison with mobile data; the public endpoint may be unavailable in CI.
+    adb("shell", "dumpsys", "battery", "set", "level", "90")
+    adb("shell", "svc", "data", "enable")
+    time.sleep(8)
+    choose_fixture()
+    tap("Сравнить задержку до и после")
+    tap("Настроить фон")
+    wait_settings()
+    verify("Network Fixture")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(2)
+    verify("Сравнить задержку?")
+    texts = {n.attrib.get("text") for n in nodes()}
+    if "Измерить после" in texts:
+        tap("Измерить после")
+        result = wait_comparison([
+            "Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено.",
+            "Повторный замер не удался. Проверьте настройку в Android.",
+            "Сравнение недоступно: нет исходного замера или мобильная сеть изменилась. Состояние системной настройки не подтверждено."
+        ])
+        print("Per-app comparison result:", result)
+    else:
+        verify("Исходный замер недоступен или сеть изменилась. Настройку фоновых данных проверьте в Android.")
+        tap("Понятно")
+        print("Per-app comparison unavailable; settings remain usable")
+    if restricted(uid):
+        raise RuntimeError("No-toggle comparison unexpectedly changed the fixture policy")
+    # Return to a fresh top-level traffic screen, independent of scroll position.
+    tap("Главная")
+    tap("Трафик")
     choose_fixture()
     tap("Остановить")
     focus = adb("shell", "dumpsys", "activity", "activities")
@@ -162,3 +231,4 @@ finally:
     adb("uninstall", fixture, check=False)
     adb("shell", "svc", "data", "enable", check=False)
     adb("shell", "svc", "wifi", "enable", check=False)
+    adb("shell", "dumpsys", "battery", "reset", check=False)

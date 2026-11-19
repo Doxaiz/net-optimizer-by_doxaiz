@@ -91,6 +91,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var manualApps by remember { mutableStateOf<List<StopTarget>?>(null) }
     var manualAppsLoading by remember { mutableStateOf(false) }
     var pendingManualApp by remember { mutableStateOf<StopTarget?>(null) }
+    var manualAppCompare by remember { mutableStateOf(false) }
+    var awaitingAppSettings by rememberSaveable { mutableStateOf(false) }
+    var appSettingsLabel by rememberSaveable { mutableStateOf("") }
+    var appSettingsReturned by remember { mutableStateOf(false) }
     var manualAppNotice by remember { mutableStateOf<String?>(null) }
     var manualAppBusy by remember { mutableStateOf(false) }
     var manualAppJob by remember { mutableStateOf<Job?>(null) }
@@ -105,6 +109,14 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             dataSaverStatus = dataSaver.status()
             optimizer.onStart()
             optimizationMessage = "Вернулись из настроек. Проверьте, включили ли вы экономию трафика."
+        }
+    }
+    val appSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (awaitingAppSettings) {
+            awaitingAppSettings = false
+            optimizer.onStart()
+            appSettingsReturned = true
+            manualAppNotice = "Настройку фоновых данных проверьте в Android: изменение не подтверждено."
         }
     }
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
@@ -133,7 +145,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     optimizer.onStop()
                     pendingStop = null; pendingBatch = false; pendingDataSaver = null; pendingOptimization = false
                     pendingManualApp = null; manualPickerOpen = false
-                    manualAppJob?.cancel()
+                    if (manualAppJob?.isActive == true && !awaitingAppSettings) {
+                        manualAppJob?.cancel()
+                        manualAppNotice = "Действие прервано; настройки приложения не открыты."
+                    }
                     if (optimizationJob?.isActive == true && !awaitingManualSettings) {
                         optimizationJob?.cancel()
                         optimizationMessage = "Оптимизация прервана. Настройка могла измениться — проверьте её ниже."
@@ -382,27 +397,71 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
 
     fun openManualApp(app: StopTarget, backgroundData: Boolean) {
         pendingManualApp = null
-        if (manualAppBusy) return
+        if (manualAppBusy || dataSaverBusy || awaitingManualSettings || awaitingAppSettings) return
+        val compare = backgroundData && manualAppCompare
+        appSettingsReturned = false
+        optimizationMessage = null
         manualAppBusy = true
+        manualAppNotice = if (compare) "Измеряем задержку до изменений…" else null
         manualAppJob = scope.launch {
             try {
-                val allowed = monitor.canStopNow(app)
+                if (!monitor.canStopNow(app)) {
+                    manualAppNotice = "Приложение защищено или изменилось; настройки не открыты."
+                    return@launch
+                }
+                if (compare) {
+                    optimizer.start()
+                    snapshotFlow { optimizer.state.phase }.first { it == LoadPhase.READY || it == LoadPhase.IDLE }
+                } else optimizer.clear()
                 currentCoroutineContext().ensureActive()
-                manualAppNotice = when {
-                    !allowed -> "Приложение защищено или изменилось; настройки не открыты."
-                    !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) -> "Действие отменено."
-                    backgroundData -> when (monitor.openBackgroundDataSettings(app.packageName)) {
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+                // Revalidate after the potentially long measurement, before launching Android settings.
+                if (!monitor.canStopNow(app)) {
+                    optimizer.clear()
+                    manualAppNotice = "Приложение защищено или изменилось; настройки не открыты."
+                    return@launch
+                }
+                currentCoroutineContext().ensureActive()
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+                manualAppNotice = if (backgroundData) {
+                    if (compare) {
+                        appSettingsLabel = app.label
+                        awaitingAppSettings = true
+                    }
+                    val destination = monitor.openBackgroundDataSettings(app.packageName,
+                        if (compare) { intent -> appSettingsLauncher.launch(intent) } else null)
+                    if (destination == ManualSettingsDestination.UNAVAILABLE) {
+                        awaitingAppSettings = false
+                        optimizer.clear()
+                    }
+                    when (destination) {
                         ManualSettingsDestination.DATA_USAGE -> "Проверьте имя приложения в Android и выключите «Фоновые данные». Изменение не подтверждено."
                         ManualSettingsDestination.APP_DETAILS -> "Откройте «Мобильные данные и Wi‑Fi» в карточке приложения и выключите «Фоновые данные». Изменение не подтверждено."
                         ManualSettingsDestination.UNAVAILABLE -> "Не удалось открыть настройки приложения."
                     }
-                    monitor.openAppSettings(app.packageName) -> "В Android нажмите «Остановить», если хотите. Остановка не подтверждена."
-                    else -> "Не удалось открыть настройки приложения."
-                }
+                } else if (monitor.openAppSettings(app.packageName)) "В Android нажмите «Остановить», если хотите. Остановка не подтверждена."
+                else "Не удалось открыть настройки приложения."
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { manualAppNotice = "Не удалось открыть настройки приложения." }
+            catch (_: Exception) { awaitingAppSettings = false; optimizer.clear(); manualAppNotice = "Не удалось открыть настройки приложения." }
             finally { manualAppBusy = false; manualAppJob = null }
         }
+    }
+
+    if (appSettingsReturned) {
+        AlertDialog(
+            onDismissRequest = { appSettingsReturned = false; optimizer.clear() },
+            title = { Text("Сравнить задержку?") },
+            text = { Text(if (optimizer.state.phase == LoadPhase.READY)
+                "Можно повторить замер после настройки «$appSettingsLabel». Приложение не может проверить, изменили ли вы переключатель. Разница замеров не доказывает ускорение."
+                else "Исходный замер недоступен или сеть изменилась. Настройку фоновых данных проверьте в Android.") },
+            confirmButton = {
+                if (optimizer.state.phase == LoadPhase.READY) TextButton(onClick = { appSettingsReturned = false; measureAfterManualSettings() }) { Text("Измерить после") }
+                else TextButton(onClick = { appSettingsReturned = false; optimizer.clear() }) { Text("Понятно") }
+            },
+            dismissButton = {
+                if (optimizer.state.phase == LoadPhase.READY) TextButton(onClick = { appSettingsReturned = false; optimizer.clear() }) { Text("Отмена") }
+            }
+        )
     }
 
     if (manualPickerOpen) {
@@ -421,7 +480,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         found.isEmpty() -> Text("Подходящих приложений нет.")
                         else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
                             items(found, key = { it.packageName }) { app ->
-                                TextButton(onClick = { manualPickerOpen = false; pendingManualApp = app }, modifier = Modifier.fillMaxWidth()) {
+                                TextButton(onClick = { manualPickerOpen = false; manualAppCompare = false; pendingManualApp = app }, modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.fillMaxWidth()) {
                                         Text(app.label)
                                         Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -440,7 +499,15 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         AlertDialog(
             onDismissRequest = { pendingManualApp = null },
             title = { Text("Настроить ${app.label}?") },
-            text = { Text("В Android проверьте имя приложения и выключите «Фоновые данные». Это может ограничить фоновые загрузки на лимитных сетях и задержать уведомления. Настройка остаётся до ручного включения. Если её нет, найдите раздел «Мобильные данные и Wi‑Fi» в карточке приложения.\n\nДругой вариант — остановить приложение целиком; это прервёт его работу и загрузки.") },
+            text = {
+                Column {
+                    Text("В Android выключите «Фоновые данные». На лимитных сетях это может ограничить загрузки и задержать уведомления. Настройка сохраняется до включения. Если открыт общий экран приложения, найдите раздел «Мобильные данные и Wi‑Fi». Остановка прерывает всю работу приложения.")
+                    Row(Modifier.fillMaxWidth().clickable { manualAppCompare = !manualAppCompare }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = manualAppCompare, onCheckedChange = { manualAppCompare = it })
+                        Text("Сравнить задержку до и после")
+                    }
+                }
+            },
             confirmButton = { TextButton(onClick = { openManualApp(app, backgroundData = true) }) { Text("Настроить фон") } },
             dismissButton = { Row {
                 TextButton(onClick = { openManualApp(app, backgroundData = false) }) { Text("Остановить") }
@@ -564,11 +631,11 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
         item {
-            LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy, dataSaverMessage, optimizationMessage, optimizationJob?.isActive == true,
+            LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy || manualAppBusy, dataSaverMessage, optimizationMessage, optimizationJob?.isActive == true || manualAppJob?.isActive == true,
                 onOptimize = { compareManual = false; pendingOptimization = true },
                 onManualApps = { manualAppQuery = ""; manualPickerOpen = true },
                 manualAppBusy = manualAppBusy, manualAppNotice = manualAppNotice,
-                onCancelOptimization = { optimizationJob?.cancel(); optimizer.clear(); optimizationMessage = "Остановлено. Настройка могла измениться — проверьте её ниже." },
+                onCancelOptimization = { manualAppJob?.cancel(); optimizationJob?.cancel(); optimizer.clear(); manualAppNotice = "Действие остановлено."; optimizationMessage = "Остановлено. Настройка могла измениться — проверьте её ниже." },
                 onDirectChange = { pendingDataSaver = it }, openDataSaver = { dataSaver.openSettings() })
         }
         item {
@@ -653,7 +720,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         Text("За период: ${formatBytes(app.totalBytes)}", color = MaterialTheme.colorScheme.primary)
                         if (app.packageNames.size > 1) Text("Общие данные нескольких приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (!isProtected(app) && app.packageNames.size == 1) {
-                            TextButton(onClick = { pendingStop = app }, enabled = !stopping) { Text("Остановить приложение") }
+                            TextButton(onClick = {
+                                manualAppCompare = false
+                                pendingManualApp = StopTarget(app.uid, app.packageNames.single(), app.label)
+                            }, enabled = !stopping && !manualAppBusy && !dataSaverBusy) { Text("Настроить фон") }
                         }
                     }
                 }
@@ -673,6 +743,12 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         if (!choose) selectedApps = selectedApps - pkg
                         else if (selectedApps.size < StopPolicy.MAX_TARGETS) selectedApps = selectedApps + (pkg to app)
                         else notice = "Можно выбрать не более ${StopPolicy.MAX_TARGETS} приложений за раз."
+                    }
+                },
+                onManualSettings = {
+                    if (pkg != null && !isProtected(app) && !manualAppBusy && !dataSaverBusy) {
+                        manualAppCompare = false
+                        pendingManualApp = StopTarget(app.uid, pkg, app.label)
                     }
                 },
                 onStop = { pendingStop = app })
@@ -774,7 +850,7 @@ private fun loadSampleText(sample: LoadSample): String =
     "${sample.averageMs} мс · разброс ${sample.jitterMs} мс · ${sample.successes}/${sample.attempts} успешных"
 
 @Composable
-private fun TrafficRow(app: AppTraffic, userProtected: Boolean, selected: Boolean, enabled: Boolean, onProtection: (Boolean) -> Unit, onSelect: (Boolean) -> Unit, onStop: () -> Unit) {
+private fun TrafficRow(app: AppTraffic, userProtected: Boolean, selected: Boolean, enabled: Boolean, onProtection: (Boolean) -> Unit, onSelect: (Boolean) -> Unit, onManualSettings: () -> Unit, onStop: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(app.label + if (app.systemProtected || userProtected) " 🛡" else "", style = MaterialTheme.typography.titleSmall)
@@ -785,6 +861,7 @@ private fun TrafficRow(app: AppTraffic, userProtected: Boolean, selected: Boolea
                     Text("Системная защита", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     TextButton(onClick = { onProtection(!userProtected) }, enabled = enabled) { Text(if (userProtected) "Убрать защиту" else "Защитить") }
+                    TextButton(onClick = onManualSettings, enabled = enabled && !userProtected) { Text("Фон") }
                     TextButton(onClick = onStop, enabled = enabled && !userProtected) { Text("Стоп") }
                 }
             }
