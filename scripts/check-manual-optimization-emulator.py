@@ -8,6 +8,14 @@ import time
 
 if os.environ.get("AUDIT_DISPOSABLE_EMULATOR") != "yes" or len(sys.argv) != 2:
     raise SystemExit("Only use on a disposable emulator: debug-apk")
+def report_exception(kind, value, tb):
+    import traceback
+    traceback.print_exception(kind, value, tb)
+    # Make failures available as GitHub check annotations on isolated emulators.
+    print("::error::" + str(value).replace("\n", " ")[:1500], flush=True)
+
+
+sys.excepthook = report_exception
 h = runpy.run_path("scripts/audit-release-emulator.py")
 adb, install, start = h["adb"], h["install"], h["start"]
 tap, verify, alive, nodes = h["tap"], h["verify_screen"], h["alive"], h["nodes"]
