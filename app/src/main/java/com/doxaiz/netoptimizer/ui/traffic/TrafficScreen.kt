@@ -37,6 +37,8 @@ import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummaryStatus
 import com.doxaiz.netoptimizer.core.traffic.TrafficPeriod
+import com.doxaiz.netoptimizer.core.traffic.TrafficRanking
+import com.doxaiz.netoptimizer.core.traffic.TrafficSort
 import com.doxaiz.netoptimizer.core.traffic.TrafficWindow
 import com.doxaiz.netoptimizer.core.traffic.LoadComparison
 import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
@@ -126,6 +128,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var period by rememberSaveable { mutableStateOf(TrafficPeriod.TODAY) }
+    var trafficSort by rememberSaveable { mutableStateOf(TrafficSort.TOTAL) }
     var protectedApps by remember { mutableStateOf(monitor.protectedByUser()) }
     var filter by remember { mutableStateOf("all") }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -198,7 +201,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     }
 
     fun isProtected(app: AppTraffic) = app.systemProtected || app.packageNames.any { it in protectedApps }
-    val shown = summary?.apps.orEmpty().filter { filter == "all" || isProtected(it) }
+    val ranked = remember(summary?.apps, trafficSort) { TrafficRanking.sort(summary?.apps.orEmpty(), trafficSort) }
+    val shown = remember(ranked, filter, protectedApps) { ranked.filter { filter == "all" || isProtected(it) } }
 
     fun stopSelected() {
         if (stopping) return
@@ -668,6 +672,14 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                             val total = apps.fold(0L) { sum, app -> saturatedAdd(sum, app.totalBytes) }
                             Text("Всего по доступным записям: ${formatBytes(total)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                             Text("Включает доступные системные UID и раздачу, если Android их предоставил; статистика может быть неполной.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (apps.any { it.outsideForegroundBytes != null }) {
+                                Text("Сортировать", style = MaterialTheme.typography.labelMedium)
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(selected = trafficSort == TrafficSort.TOTAL, onClick = { trafficSort = TrafficSort.TOTAL }, label = { Text("Общий расход") })
+                                    FilterChip(selected = trafficSort == TrafficSort.OUTSIDE_FOREGROUND, onClick = { trafficSort = TrafficSort.OUTSIDE_FOREGROUND }, label = { Text("Условно фон") })
+                                }
+                                Text("Условно фон — расход, не отнесённый Android к foreground. Это не точный фон и не активность сейчас; данные могут запаздывать.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                     when {
@@ -712,12 +724,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         if (!details && notice != null) item {
             Text(notice!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
-        items(if (details) shown else summary?.apps.orEmpty(), key = { it.uid }) { app ->
+        items(if (details) shown else ranked, key = { it.uid }) { app ->
             if (!details) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(app.label, style = MaterialTheme.typography.titleSmall)
                         Text("За период: ${formatBytes(app.totalBytes)}", color = MaterialTheme.colorScheme.primary)
+                        Text(outsideForegroundText(app), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (app.packageNames.size > 1) Text("Общие данные нескольких приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (!isProtected(app) && app.packageNames.size == 1) {
                             TextButton(onClick = {
@@ -849,12 +862,16 @@ private fun LoadOptimizationCard(
 private fun loadSampleText(sample: LoadSample): String =
     "${sample.averageMs} мс · разброс ${sample.jitterMs} мс · ${sample.successes}/${sample.attempts} успешных"
 
+private fun outsideForegroundText(app: AppTraffic): String =
+    "Условно фон: " + (app.outsideForegroundBytes?.let(::formatBytes) ?: "нет данных")
+
 @Composable
 private fun TrafficRow(app: AppTraffic, userProtected: Boolean, selected: Boolean, enabled: Boolean, onProtection: (Boolean) -> Unit, onSelect: (Boolean) -> Unit, onManualSettings: () -> Unit, onStop: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(app.label + if (app.systemProtected || userProtected) " 🛡" else "", style = MaterialTheme.typography.titleSmall)
             Text("Всего ${formatBytes(app.totalBytes)} · ↓ ${formatBytes(app.rxBytes)} · ↑ ${formatBytes(app.txBytes)}", style = MaterialTheme.typography.bodySmall, color = AccentCyan)
+            Text(outsideForegroundText(app), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (app.packageNames.size > 1) Text("Общий UID: данные нельзя надёжно разделить между приложениями.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (app.systemProtected) {
