@@ -124,7 +124,7 @@ def reveal_top_button(label):
     raise RuntimeError("Cannot find " + label + "; visible: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
 
 
-def choose_fixture():
+def choose_fixture(pinned=False):
     reveal_top_button("Настроить фон приложений")
     tap("Настроить фон приложений")
     verify("Выберите приложение")
@@ -134,6 +134,10 @@ def choose_fixture():
     # Dismiss keyboard before selecting the list entry.
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     verify("Network Fixture")
+    marker = "Закреплено · " + fixture
+    visible = {n.attrib.get("text") for n in nodes()}
+    if (marker in visible) != pinned:
+        raise RuntimeError("Pinned shortcut did not match expected state: " + repr(visible))
     tap("Network Fixture")
     verify("Настроить Network Fixture?")
 
@@ -155,11 +159,21 @@ try:
     tap("Трафик")
     # No usage permission, network or Shizuku needed; cancellation makes no change.
     choose_fixture()
+    tap("Закрепить для быстрого доступа")
     tap("Отмена")
     uid = fixture_uid()
     if stopped() or restricted(uid):
-        raise RuntimeError("Cancellation changed the fixture")
+        raise RuntimeError("Pinning or cancellation changed the fixture")
+    # The shortcut must survive process death; it never changes the Android policy.
+    adb("shell", "am", "force-stop", h["PACKAGE"])
+    start()
+    tap("Трафик")
+    choose_fixture(pinned=True)
+    tap("Закрепить для быстрого доступа")
+    tap("Отмена")
     choose_fixture()
+    if stopped() or restricted(uid):
+        raise RuntimeError("Unpinning changed the fixture")
     # Even when an optional baseline cannot run, the user can change the setting.
     tap("Сравнить задержку до и после")
     tap("Настроить фон")

@@ -44,7 +44,8 @@ import com.doxaiz.netoptimizer.core.traffic.LoadComparison
 import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
 import com.doxaiz.netoptimizer.core.traffic.LoadPhase
 import com.doxaiz.netoptimizer.core.traffic.LoadSample
-import com.doxaiz.netoptimizer.core.traffic.ManualAppSearch
+import com.doxaiz.netoptimizer.core.traffic.ManualAppPins
+import com.doxaiz.netoptimizer.core.traffic.ManualAppList
 import com.doxaiz.netoptimizer.core.traffic.ManualSettingsDestination
 import com.doxaiz.netoptimizer.core.traffic.OneTapOptimization
 import com.doxaiz.netoptimizer.core.traffic.OneTapOperations
@@ -75,6 +76,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     val details = expert || expanded
     val context = LocalContext.current
     val monitor = remember { TrafficMonitor(context.applicationContext) }
+    val appPins = remember { ManualAppPins(context.applicationContext) }
+    var pinnedApps by remember(appPins) { mutableStateOf(appPins.packages()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
     val optimizer = remember(monitor, scope) { LoadOptimizationController(context.applicationContext, scope) }
@@ -439,8 +442,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         optimizer.clear()
                     }
                     when (destination) {
-                        ManualSettingsDestination.DATA_USAGE -> "Проверьте имя приложения в Android и выключите «Фоновые данные». Изменение не подтверждено."
-                        ManualSettingsDestination.APP_DETAILS -> "Откройте «Мобильные данные и Wi‑Fi» в карточке приложения и выключите «Фоновые данные». Изменение не подтверждено."
+                        ManualSettingsDestination.DATA_USAGE -> "Проверьте имя приложения и настройте «Фоновые данные» в Android. Изменение не подтверждено."
+                        ManualSettingsDestination.APP_DETAILS -> "Откройте «Мобильные данные и Wi‑Fi» и настройте «Фоновые данные» в Android. Изменение не подтверждено."
                         ManualSettingsDestination.UNAVAILABLE -> "Не удалось открыть настройки приложения."
                     }
                 } else if (monitor.openAppSettings(app.packageName)) "В Android нажмите «Остановить», если хотите. Остановка не подтверждена."
@@ -469,13 +472,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     }
 
     if (manualPickerOpen) {
-        val found = manualApps.orEmpty().filter { ManualAppSearch.matches(it, manualAppQuery) }
+        val found = remember(manualApps, manualAppQuery, pinnedApps) { ManualAppList.search(manualApps.orEmpty(), manualAppQuery, pinnedApps) }
         AlertDialog(
             onDismissRequest = { manualPickerOpen = false },
             title = { Text("Выберите приложение") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Выберите приложение. Список не показывает текущую сетевую активность.", style = MaterialTheme.typography.bodySmall)
+                    Text("Закреплённые — вверху. Список не показывает активность или состояние настроек.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(value = manualAppQuery, onValueChange = { manualAppQuery = it }, singleLine = true,
                         label = { Text("Поиск приложений") }, modifier = Modifier.fillMaxWidth())
                     when {
@@ -487,7 +490,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                                 TextButton(onClick = { manualPickerOpen = false; manualAppCompare = false; pendingManualApp = app }, modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.fillMaxWidth()) {
                                         Text(app.label)
-                                        Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(if (app.packageName in pinnedApps) "Закреплено · ${app.packageName}" else app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -495,7 +498,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { manualPickerOpen = false }) { Text("Закрыть") } }
+            confirmButton = { TextButton(onClick = { manualPickerOpen = false }) { Text("Закрыть") } },
+            dismissButton = {
+                if (pinnedApps.isNotEmpty()) TextButton(onClick = { appPins.clear(); pinnedApps = appPins.packages() }) { Text("Сбросить закреплённые") }
+            }
         )
     }
 
@@ -505,7 +511,17 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             title = { Text("Настроить ${app.label}?") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("Выключите в Android «Фоновые данные». На лимитных сетях это может задержать уведомления и действует до обратного включения. «Остановить» завершит всё приложение.")
+                    Text("В Android можно выключить или снова включить «Фоновые данные». Ограничение на лимитных сетях может задержать уведомления. «Остановить» завершит всё приложение.")
+                    Row(Modifier.fillMaxWidth().clickable {
+                        appPins.setPinned(app.packageName, app.packageName !in pinnedApps)
+                        pinnedApps = appPins.packages()
+                    }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = app.packageName in pinnedApps, onCheckedChange = {
+                            appPins.setPinned(app.packageName, it)
+                            pinnedApps = appPins.packages()
+                        })
+                        Text("Закрепить для быстрого доступа")
+                    }
                     Row(Modifier.fillMaxWidth().clickable { manualAppCompare = !manualAppCompare }, verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = manualAppCompare, onCheckedChange = { manualAppCompare = it })
                         Text("Сравнить задержку до и после")
