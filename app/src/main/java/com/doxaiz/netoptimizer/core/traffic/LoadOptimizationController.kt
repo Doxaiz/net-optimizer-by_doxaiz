@@ -157,6 +157,13 @@ internal class LoadOptimizationController(private val context: Context, private 
         valid(currentGuard, initial)
     }
 
+    /** Used before a confirmed action so a stale baseline never changes settings. */
+    fun canApplyChange(): Boolean {
+        val currentGuard = guard ?: return false
+        val initial = network ?: return false
+        return state.phase == LoadPhase.READY && valid(currentGuard, initial) && CellularNetwork.batteryOk(context)
+    }
+
     /** Android settings can cover the app: cancel probes but retain the baseline and watcher. */
     fun onStop() {
         when (state.phase) {

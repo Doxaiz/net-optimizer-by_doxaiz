@@ -166,7 +166,8 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                Button(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Оптимизировать сеть") }
+                OutlinedButton(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                     Text(if (busy) "Проверяем…" else if (details) "Проверить связь и DNS" else "Проверить связь")
                 }
                 if (busy) {
@@ -206,8 +207,6 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                             modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                OutlinedButton(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Снизить нагрузку на сеть") }
-                Text("Пауза загрузок и сравнение задержки. Улучшение не гарантировано.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!expert) TextButton(onClick = { expanded = !expanded }, enabled = !busy) { Text(if (expanded) "Скрыть подробности" else "Показать подробности") }
             }
         }

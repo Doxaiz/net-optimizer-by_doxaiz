@@ -58,7 +58,7 @@ try:
     time.sleep(3)
     verify("Shizuku · не обязательно · готово")
     tap("Продолжить")
-    tap("Снизить нагрузку на сеть")
+    tap("Трафик")
     time.sleep(4)
     print("Traffic screen initially:", [(n.attrib.get("text"), n.attrib.get("bounds")) for n in h["nodes"]() if n.attrib.get("text")], flush=True)
     try:
