@@ -102,7 +102,7 @@ fun SettingsScreen(
                         when (shizukuStatus) {
                             ShizukuManager.Status.READY -> "Shizuku подключён. Доступность действий зависит от устройства и разрешений."
                             ShizukuManager.Status.NO_PERMISSION -> "⚠️ Shizuku запущен — нажмите «Разрешить»."
-                            ShizukuManager.Status.NOT_RUNNING -> "⚠️ Установите и запустите Shizuku (инструкция ниже)"
+                            ShizukuManager.Status.NOT_RUNNING -> "Shizuku не запущен. Основные функции доступны без него."
                             ShizukuManager.Status.NOT_INSTALLED -> "Shizuku не подключён; доступны только функции без привилегий."
                         },
                         style = MaterialTheme.typography.bodySmall,

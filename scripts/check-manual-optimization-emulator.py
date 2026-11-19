@@ -41,11 +41,13 @@ def wait_text(text, timeout=100):
     wait_any([text], timeout)
 
 
-def open_optimization():
+def open_optimization(compare=False):
     tap("Оптимизировать сеть")
     verify("Оптимизировать сеть?")
+    if compare:
+        tap("Сравнить задержку до и после")
     tap("Начать")
-    until = time.monotonic() + 100
+    until = time.monotonic() + (100 if compare else 12)
     while time.monotonic() < until:
         if "com.android.settings" in adb("shell", "dumpsys", "activity", "activities"):
             return
@@ -88,13 +90,20 @@ try:
     tap("Отмена")
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Cancel changed Data Saver")
-    # With low battery/no network, settings remain accessible, but no comparison is claimed.
+    # The default flow opens settings immediately, even without a network.
     open_optimization()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     wait_text("Проверили настройку?")
-    verify("Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android.")
+    verify("Экономию трафика нужно включить вручную в Android. Проверьте переключатель: приложение не может надёжно подтвердить его общесистемное состояние.")
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Returning without a toggle changed Data Saver")
+    tap("Понятно")
+    # Comparison is optional; low battery makes it unavailable without blocking settings.
+    tap("Главная")
+    open_optimization(compare=True)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    wait_text("Проверили настройку?")
+    verify("Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android.")
     tap("Понятно")
     adb("shell", "dumpsys", "battery", "set", "level", "90")
     adb("shell", "svc", "data", "enable")
@@ -104,7 +113,7 @@ try:
     compared = False
     for attempt in range(3):
         tap("Главная")
-        open_optimization()
+        open_optimization(compare=True)
         if status() == "Restrict background status: disabled":
             switch_on_in_settings()
         adb("shell", "input", "keyevent", "KEYCODE_BACK")

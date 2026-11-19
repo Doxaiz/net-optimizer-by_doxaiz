@@ -24,6 +24,8 @@ jobs:
           gradle-version: '8.7'
       - name: Build development APK
         run: gradle --no-daemon --console plain assembleDebug
+      - name: Build disposable test app
+        run: bash scripts/build-manual-app-fixture.sh
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -35,7 +37,4 @@ jobs:
           api-level: ${{ matrix.api }}
           arch: x86_64
           disable-animations: true
-          script: |
-            adb shell wm size 1080x2400
-            adb shell wm density 420
-            AUDIT_DISPOSABLE_EMULATOR=yes python3 scripts/check-manual-optimization-emulator.py app/build/outputs/apk/debug/app-debug.apk
+          script: bash scripts/run-manual-checks.sh

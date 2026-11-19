@@ -3,6 +3,7 @@ package com.doxaiz.netoptimizer.ui.traffic
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +42,7 @@ import com.doxaiz.netoptimizer.core.traffic.LoadComparison
 import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
 import com.doxaiz.netoptimizer.core.traffic.LoadPhase
 import com.doxaiz.netoptimizer.core.traffic.LoadSample
+import com.doxaiz.netoptimizer.core.traffic.ManualAppSearch
 import com.doxaiz.netoptimizer.core.traffic.OneTapOptimization
 import com.doxaiz.netoptimizer.core.traffic.OneTapOperations
 import com.doxaiz.netoptimizer.core.traffic.OneTapResult
@@ -81,6 +83,16 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var dataSaverBusy by remember { mutableStateOf(false) }
     var dataSaverMessage by remember { mutableStateOf<String?>(null) }
     var pendingOptimization by remember { mutableStateOf(false) }
+    var compareManual by remember { mutableStateOf(false) }
+    var manualComparisonRequested by rememberSaveable { mutableStateOf(false) }
+    var manualPickerOpen by remember { mutableStateOf(false) }
+    var manualAppQuery by remember { mutableStateOf("") }
+    var manualApps by remember { mutableStateOf<List<StopTarget>?>(null) }
+    var manualAppsLoading by remember { mutableStateOf(false) }
+    var pendingManualApp by remember { mutableStateOf<StopTarget?>(null) }
+    var manualAppNotice by remember { mutableStateOf<String?>(null) }
+    var manualAppBusy by remember { mutableStateOf(false) }
+    var manualAppJob by remember { mutableStateOf<Job?>(null) }
     var optimizationMessage by remember { mutableStateOf<String?>(null) }
     var optimizationJob by remember { mutableStateOf<Job?>(null) }
     var awaitingManualSettings by rememberSaveable { mutableStateOf(false) }
@@ -119,6 +131,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     foreground = false
                     optimizer.onStop()
                     pendingStop = null; pendingBatch = false; pendingDataSaver = null; pendingOptimization = false
+                    pendingManualApp = null; manualPickerOpen = false
+                    manualAppJob?.cancel()
                     if (optimizationJob?.isActive == true && !awaitingManualSettings) {
                         optimizationJob?.cancel()
                         optimizationMessage = "Оптимизация прервана. Настройка могла измениться — проверьте её ниже."
@@ -132,12 +146,20 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); optimizationJob?.cancel(); stopJob?.cancel(); optimizer.clear() }
+        onDispose { lifecycle.removeObserver(observer); manualAppJob?.cancel(); optimizationJob?.cancel(); stopJob?.cancel(); optimizer.clear() }
     }
     LaunchedEffect(optimizationRequested) {
         if (optimizationRequested) {
+            compareManual = false
             pendingOptimization = true
             onRequestConsumed()
+        }
+    }
+    LaunchedEffect(manualPickerOpen) {
+        if (manualPickerOpen) {
+            manualApps = null
+            manualAppsLoading = true
+            try { manualApps = monitor.manualStopTargets() } finally { manualAppsLoading = false }
         }
     }
     LaunchedEffect(foreground, shizukuReady) {
@@ -202,15 +224,18 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         }
     }
 
-    fun startManualOptimization() {
+    fun startManualOptimization(compare: Boolean) {
         if (dataSaverBusy || optimizationJob?.isActive == true || awaitingManualSettings) return
         manualSettingsReturned = false
+        manualComparisonRequested = compare
         dataSaverBusy = true
-        optimizationMessage = "Измеряем задержку перед открытием настроек…"
+        optimizationMessage = if (compare) "Измеряем задержку перед открытием настроек…" else "Открываем настройки Android…"
         optimizationJob = scope.launch {
             try {
-                optimizer.start()
-                snapshotFlow { optimizer.state.phase }.first { it == LoadPhase.READY || it == LoadPhase.IDLE }
+                if (compare) {
+                    optimizer.start()
+                    snapshotFlow { optimizer.state.phase }.first { it == LoadPhase.READY || it == LoadPhase.IDLE }
+                } else optimizer.clear()
                 currentCoroutineContext().ensureActive()
                 if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
                 // A failed baseline does not prevent the user from opening Android settings.
@@ -317,12 +342,20 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         AlertDialog(
             onDismissRequest = { pendingOptimization = false },
             title = { Text("Оптимизировать сеть?") },
-            text = { Text(if (ready)
-                "Измерим задержку, включим системную экономию трафика и повторим замер. Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi. Уведомления могут задерживаться. Настройка останется включённой, пока вы её не выключите. Улучшение не гарантировано."
-                else "Измерим задержку и откроем настройки Android. Там включите «Экономия трафика» и вернитесь в приложение для повторного замера. Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi, и может задерживать уведомления. Настройка действует на всём устройстве до отключения. Улучшение не гарантировано.") },
+            text = {
+                Column {
+                    Text(if (ready)
+                        "Измерим задержку, включим системную экономию трафика и повторим замер. Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi. Уведомления могут задерживаться. Настройка останется включённой, пока вы её не выключите. Улучшение не гарантировано."
+                        else "Откроем настройки Android: включите «Экономия трафика». Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi, и может задерживать уведомления. Настройка действует на всём устройстве до отключения. Улучшение не гарантировано.")
+                    if (!ready) Row(Modifier.fillMaxWidth().clickable { compareManual = !compareManual }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = compareManual, onCheckedChange = { compareManual = it })
+                        Text("Сравнить задержку до и после")
+                    }
+                }
+            },
             confirmButton = { TextButton(onClick = {
                 pendingOptimization = false
-                if (ready) startOptimization() else startManualOptimization()
+                if (ready) startOptimization() else startManualOptimization(compareManual)
             }) { Text("Начать") } },
             dismissButton = { TextButton(onClick = { pendingOptimization = false }) { Text("Отмена") } }
         )
@@ -334,7 +367,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             title = { Text("Проверили настройку?") },
             text = { Text(if (optimizer.state.phase == LoadPhase.READY)
                 "Если вы включили экономию трафика в Android, можно повторить замер. Приложение не может надёжно подтвердить общесистемное состояние."
-                else "Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android.") },
+                else if (manualComparisonRequested) "Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android."
+                else "Экономию трафика нужно включить вручную в Android. Проверьте переключатель: приложение не может надёжно подтвердить его общесистемное состояние.") },
             confirmButton = {
                 if (optimizer.state.phase == LoadPhase.READY) TextButton(onClick = { measureAfterManualSettings() }) { Text("Я включил — измерить снова") }
                 else TextButton(onClick = { manualSettingsReturned = false }) { Text("Понятно") }
@@ -342,6 +376,66 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             dismissButton = {
                 if (optimizer.state.phase == LoadPhase.READY) TextButton(onClick = { manualSettingsReturned = false; optimizer.clear(); optimizationMessage = "Состояние экономии трафика проверьте в настройках Android." }) { Text("Отмена") }
             }
+        )
+    }
+
+    if (manualPickerOpen) {
+        val found = manualApps.orEmpty().filter { ManualAppSearch.matches(it, manualAppQuery) }
+        AlertDialog(
+            onDismissRequest = { manualPickerOpen = false },
+            title = { Text("Выберите приложение") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Выберите приложение с ненужной загрузкой. Список не показывает текущую активность.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(value = manualAppQuery, onValueChange = { manualAppQuery = it }, singleLine = true,
+                        label = { Text("Поиск приложений") }, modifier = Modifier.fillMaxWidth())
+                    when {
+                        manualAppsLoading -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                        manualApps == null -> Text("Не удалось загрузить список приложений.")
+                        found.isEmpty() -> Text("Подходящих приложений нет.")
+                        else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
+                            items(found, key = { it.packageName }) { app ->
+                                TextButton(onClick = { manualPickerOpen = false; pendingManualApp = app }, modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text(app.label)
+                                        Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { manualPickerOpen = false }) { Text("Закрыть") } }
+        )
+    }
+
+    pendingManualApp?.let { app ->
+        AlertDialog(
+            onDismissRequest = { pendingManualApp = null },
+            title = { Text("Открыть ${app.label}?") },
+            text = { Text("В настройках Android можно вручную остановить приложение. Это остановит его целиком и может прервать загрузки и уведомления. Мы не знаем, использует ли оно сеть сейчас.") },
+            confirmButton = { TextButton(onClick = {
+                pendingManualApp = null
+                if (!manualAppBusy) {
+                    manualAppBusy = true
+                    manualAppJob = scope.launch {
+                        try {
+                            val allowed = monitor.canStopNow(app)
+                            currentCoroutineContext().ensureActive()
+                            manualAppNotice = when {
+                                !allowed -> "Приложение защищено или изменилось; настройки не открыты."
+                                !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) -> "Действие отменено."
+                                monitor.openAppSettings(app.packageName) -> "В Android нажмите «Остановить», если хотите. Остановка не подтверждена."
+                                else -> "Не удалось открыть настройки приложения."
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { manualAppNotice = "Не удалось открыть настройки приложения." }
+                        finally { manualAppBusy = false; manualAppJob = null }
+                    }
+                }
+            }) { Text("Открыть настройки") } },
+            dismissButton = { TextButton(onClick = { pendingManualApp = null }) { Text("Отмена") } }
         )
     }
 
@@ -403,8 +497,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     val pkg = app.packageNames.singleOrNull()
                     if (pkg != null && !isProtected(app) && !stopping) {
                         val initial = CellularNetwork.active(context)
-                        if (initial == null) {
-                            notice = "Подключите мобильный интернет, чтобы выполнить действие."
+                        if (initial == null && ShizukuManager.isReady()) {
+                            notice = "Подключите мобильный интернет для команды или откройте настройки приложения вручную."
                         } else {
                             stopping = true
                             stopJob = scope.launch {
@@ -414,8 +508,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                                     currentCoroutineContext().ensureActive()
                                     when {
                                         !allowed -> notice = "Приложение защищено или изменилось; команда не отправлена."
-                                        CellularNetwork.active(context) != initial -> notice = "Мобильная сеть изменилась; команда не отправлена."
-                                        ShizukuManager.isReady() && ShizukuManager.forceStopApp(pkg) -> {
+                                        initial != null && CellularNetwork.active(context) != initial -> notice = "Мобильная сеть изменилась; команда не отправлена."
+                                        initial != null && ShizukuManager.isReady() && ShizukuManager.forceStopApp(pkg) -> {
                                             notice = "Команда остановки принята: ${app.label}. Эффект на сеть не проверен."
                                             selectedApps = selectedApps - pkg
                                         }
@@ -461,7 +555,9 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         }
         item {
             LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy, dataSaverMessage, optimizationMessage, optimizationJob?.isActive == true,
-                onOptimize = { pendingOptimization = true },
+                onOptimize = { compareManual = false; pendingOptimization = true },
+                onManualApps = { manualAppQuery = ""; manualPickerOpen = true },
+                manualAppBusy = manualAppBusy, manualAppNotice = manualAppNotice,
                 onCancelOptimization = { optimizationJob?.cancel(); optimizer.clear(); optimizationMessage = "Остановлено. Настройка могла измениться — проверьте её ниже." },
                 onDirectChange = { pendingDataSaver = it }, openDataSaver = { dataSaver.openSettings() })
         }
@@ -586,6 +682,9 @@ private fun LoadOptimizationCard(
     optimizationMessage: String?,
     optimizationRunning: Boolean,
     onOptimize: () -> Unit,
+    onManualApps: () -> Unit,
+    manualAppBusy: Boolean,
+    manualAppNotice: String?,
     onCancelOptimization: () -> Unit,
     onDirectChange: (Boolean) -> Unit,
     openDataSaver: () -> Boolean
@@ -597,6 +696,8 @@ private fun LoadOptimizationCard(
             Text("СНИЗИТЬ НАГРУЗКУ НА СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text("Ограничение фоновых загрузок может освободить канал.", style = MaterialTheme.typography.titleSmall)
             Button(onClick = onOptimize, enabled = !dataSaverBusy && state.phase != LoadPhase.BASELINE && state.phase != LoadPhase.CHECKING, modifier = Modifier.fillMaxWidth()) { Text("Оптимизировать сеть") }
+            OutlinedButton(onClick = onManualApps, enabled = !manualAppBusy && !dataSaverBusy, modifier = Modifier.fillMaxWidth()) { Text("Выбрать приложение для остановки") }
+            manualAppNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             optimizationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             if (optimizationRunning) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
