@@ -52,6 +52,8 @@ try:
     time.sleep(5)
     install(sys.argv[1])
     start()
+    # Shizuku is deliberately hidden from the default onboarding.
+    tap("Эксперт")
     scroll_to("Разрешить")
     tap("Разрешить")
     tap("Allow all the time")
