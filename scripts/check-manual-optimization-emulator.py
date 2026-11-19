@@ -86,7 +86,8 @@ def switch_on_in_settings():
 
 adb("uninstall", h["PACKAGE"], check=False)
 adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false")
-adb("shell", "dumpsys", "battery", "set", "level", "90")
+# Guarantee that the first baseline cannot run even if a virtual network lingers.
+adb("shell", "dumpsys", "battery", "set", "level", "10")
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 try:
@@ -99,7 +100,7 @@ try:
     tap("Отмена")
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Cancel changed Data Saver")
-    # Without a network, settings remain accessible, but no comparison is claimed.
+    # With low battery/no network, settings remain accessible, but no comparison is claimed.
     open_optimization()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     wait_text("Проверили настройку?")
@@ -107,6 +108,7 @@ try:
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Returning without a toggle changed Data Saver")
     tap("Понятно")
+    adb("shell", "dumpsys", "battery", "set", "level", "90")
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
     # External DNS and TCP can fail transiently on emulators. Retry baseline, never
@@ -129,7 +131,7 @@ try:
         time.sleep(5)
     if status() != "Restrict background status: enabled":
         raise RuntimeError("Data Saver unexpectedly disabled")
-    print("No Shizuku: cancel, no network, return unchanged, real Android switch and before/after passed")
+    print("No Shizuku: cancel, unavailable baseline, return unchanged, real Android switch and before/after passed")
 finally:
     adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false", check=False)
     adb("shell", "svc", "data", "enable", check=False)
