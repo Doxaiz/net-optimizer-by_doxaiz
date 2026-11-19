@@ -2,7 +2,7 @@ name: Verify 1.0.3 release candidate (temporary)
 
 on:
   push:
-    branches: [arena/955bd13f-net-optimizer-by-doxaiz]
+    branches: [arena/1726de30-net-optimizer-by-doxaiz]
 
 permissions:
   contents: read
