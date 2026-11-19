@@ -20,7 +20,6 @@ try:
     start()
     tap("Продолжить")
     tap("Трафик")
-    verify("Фоновый трафик этого приложения: без ограничений")
     # Emulator display sizes differ: infer actual bounds, then scroll in short steps.
     bounds = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in h["nodes"]()]
     sizes = [(int(m.group(1)), int(m.group(2))) for m in bounds if m]
@@ -28,6 +27,12 @@ try:
         raise RuntimeError("Cannot determine emulator viewport")
     width, height = max(sizes, key=lambda size: size[0] * size[1])
     x = str(width // 2)
+    for _ in range(10):
+        if any(n.attrib.get("text") == "Фоновый трафик этого приложения: без ограничений" for n in h["nodes"]()):
+            break
+        adb("shell", "input", "swipe", x, str(int(height * 0.72)), x, str(int(height * 0.52)), "350")
+        time.sleep(0.5)
+    verify("Фоновый трафик этого приложения: без ограничений")
     for _ in range(10):
         if any(n.attrib.get("text") == "Настроить экономию трафика" for n in h["nodes"]()):
             break

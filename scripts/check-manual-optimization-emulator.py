@@ -41,11 +41,39 @@ def wait_text(text, timeout=100):
     wait_any([text], timeout)
 
 
-def open_optimization():
+def wait_comparison(texts, timeout=100):
+    until = time.monotonic() + timeout
+    count = 0
+    while time.monotonic() < until:
+        current = list(nodes())
+        found = {n.attrib.get("text") for n in current}
+        for text in texts:
+            if text in found:
+                return text
+        if count % 4 == 0:
+            sizes = []
+            for n in current:
+                match = re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", ""))
+                if match:
+                    sizes.append(tuple(map(int, match.groups())))
+            if sizes:
+                w, height = max(sizes, key=lambda size: size[0] * size[1])
+                # Alternate directions: the result can be just above or below the viewport.
+                start, end = ((.70, .48) if count % 8 == 0 else (.48, .70))
+                adb("shell", "input", "swipe", str(w // 2), str(int(height * start)), str(w // 2), str(int(height * end)), "350")
+        count += 1
+        alive()
+        time.sleep(1)
+    raise RuntimeError("Comparison result not visible; current UI: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
+
+
+def open_optimization(compare=False):
     tap("Оптимизировать сеть")
     verify("Оптимизировать сеть?")
+    if compare:
+        tap("Сравнить задержку до и после")
     tap("Начать")
-    until = time.monotonic() + 100
+    until = time.monotonic() + (100 if compare else 12)
     while time.monotonic() < until:
         if "com.android.settings" in adb("shell", "dumpsys", "activity", "activities"):
             return
@@ -88,13 +116,20 @@ try:
     tap("Отмена")
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Cancel changed Data Saver")
-    # With low battery/no network, settings remain accessible, but no comparison is claimed.
+    # The default flow opens settings immediately, even without a network.
     open_optimization()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     wait_text("Проверили настройку?")
-    verify("Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android.")
+    verify("Экономию трафика нужно включить вручную в Android. Проверьте переключатель: приложение не может надёжно подтвердить его общесистемное состояние.")
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Returning without a toggle changed Data Saver")
+    tap("Понятно")
+    # Comparison is optional; low battery makes it unavailable without blocking settings.
+    tap("Главная")
+    open_optimization(compare=True)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    wait_text("Проверили настройку?")
+    verify("Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android.")
     tap("Понятно")
     adb("shell", "dumpsys", "battery", "set", "level", "90")
     adb("shell", "svc", "data", "enable")
@@ -104,7 +139,7 @@ try:
     compared = False
     for attempt in range(3):
         tap("Главная")
-        open_optimization()
+        open_optimization(compare=True)
         if status() == "Restrict background status: disabled":
             switch_on_in_settings()
         adb("shell", "input", "keyevent", "KEYCODE_BACK")
@@ -114,7 +149,8 @@ try:
             tap("Я включил — измерить снова")
             success = "Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено."
             failure = "Повторный замер не удался. Проверьте настройку в Android."
-            compared = wait_any([success, failure]) == success
+            unavailable = "Сравнение недоступно: нет исходного замера или мобильная сеть изменилась. Состояние системной настройки не подтверждено."
+            compared = wait_comparison([success, failure, unavailable]) == success
             if not compared:
                 print("External TCP failed; no comparison claimed")
             break

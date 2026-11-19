@@ -52,6 +52,8 @@ try:
     time.sleep(5)
     install(sys.argv[1])
     start()
+    # Shizuku is deliberately hidden from the default onboarding.
+    tap("Эксперт")
     scroll_to("Разрешить")
     tap("Разрешить")
     tap("Allow all the time")
@@ -102,13 +104,17 @@ try:
         raise RuntimeError("Cancel unexpectedly enabled Data Saver")
     tap("Оптимизировать сеть")
     tap("Начать")
+    scroll_to("Подключите мобильный интернет; без него замер недоступен. Настройка не изменена.")
     verify("Подключите мобильный интернет; без него замер недоступен. Настройка не изменена.")
     if system_data_saver() != "Restrict background status: disabled":
         raise RuntimeError("Offline optimization unexpectedly changed Data Saver")
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
+    tap("Главная")
     tap("Оптимизировать сеть")
     tap("Начать")
+    width, height = viewport()
+    adb("shell", "input", "swipe", str(width // 2), str(int(height * 0.70)), str(width // 2), str(int(height * 0.55)), "350")
     deadline = time.monotonic() + 100
     last_text = []
     while time.monotonic() < deadline:

@@ -120,7 +120,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
                     }
                 }
             }
-            item {
+            if (interfaceMode == InterfaceMode.EXPERT) item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Дополнительно", style = MaterialTheme.typography.titleMedium)

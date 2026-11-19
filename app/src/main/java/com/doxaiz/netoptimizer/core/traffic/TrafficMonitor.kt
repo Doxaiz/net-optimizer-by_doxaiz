@@ -124,6 +124,26 @@ class TrafficMonitor(private val context: Context) {
         }
     }
 
+    /** User-installed apps available for a manual settings action, independent of usage access.
+     * This list is not evidence that an app is active or consuming network traffic. */
+    internal suspend fun manualStopTargets(): List<StopTarget>? = withContext(Dispatchers.IO) {
+        try {
+            val pm = context.packageManager
+            @Suppress("DEPRECATION")
+            val installed = pm.getInstalledApplications(0)
+            val targets = mutableListOf<StopTarget>()
+            for (info in installed) {
+                currentCoroutineContext().ensureActive()
+                if (!info.enabled || info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0) continue
+                val target = StopTarget(info.uid, info.packageName, try { pm.getApplicationLabel(info).toString() } catch (_: Exception) { info.packageName })
+                if (canStopNow(target)) targets.add(target)
+            }
+            targets.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) { null }
+    }
+
     /** Recheck package identity and protection immediately before each user-confirmed stop. */
     internal suspend fun canStopNow(target: StopTarget): Boolean = withContext(Dispatchers.IO) {
         try {

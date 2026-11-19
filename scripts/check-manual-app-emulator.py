@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Install and stop an isolated fixture app; NEVER run on a personal device."""
+import os
+import re
+import runpy
+import sys
+import time
+
+if os.environ.get("AUDIT_DISPOSABLE_EMULATOR") != "yes" or len(sys.argv) != 3:
+    raise SystemExit("Only use on a disposable emulator: application-apk fixture-apk")
+
+
+def report_exception(kind, value, tb):
+    import traceback
+    traceback.print_exception(kind, value, tb)
+    print("::error::" + str(value).replace("\n", " ")[:1500], flush=True)
+
+
+sys.excepthook = report_exception
+h = runpy.run_path("scripts/audit-release-emulator.py")
+adb, install, start, tap, verify, nodes = (h[k] for k in ("adb", "install", "start", "tap", "verify_screen", "nodes"))
+fixture = "com.doxaiz.netoptfixture"
+
+
+def stopped():
+    info = adb("shell", "dumpsys", "package", fixture)
+    match = re.search(r"User 0:.*?stopped=(true|false)", info)
+    if not match:
+        raise RuntimeError("Could not determine fixture stopped state")
+    return match.group(1) == "true"
+
+
+def choose_fixture():
+    tap("Выбрать приложение для остановки")
+    verify("Выберите приложение")
+    tap("Поиск приложений")
+    adb("shell", "input", "text", "Network")
+    time.sleep(2)
+    # Dismiss keyboard before selecting the list entry.
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    verify("Network Fixture")
+    tap("Network Fixture")
+    verify("Открыть Network Fixture?")
+
+
+adb("uninstall", h["PACKAGE"], check=False)
+adb("uninstall", fixture, check=False)
+try:
+    install(sys.argv[1])
+    install(sys.argv[2])
+    adb("shell", "svc", "wifi", "disable")
+    adb("shell", "svc", "data", "disable")
+    adb("shell", "appops", "set", h["PACKAGE"], "GET_USAGE_STATS", "ignore")
+    adb("shell", "am", "start", "-W", "-n", fixture + "/.MainActivity")
+    if stopped():
+        raise RuntimeError("Fixture did not start")
+    start()
+    tap("Продолжить")
+    tap("Трафик")
+    # No usage permission, network or Shizuku needed; cancellation makes no change.
+    choose_fixture()
+    tap("Отмена")
+    if stopped():
+        raise RuntimeError("Cancellation stopped the fixture")
+    choose_fixture()
+    tap("Открыть настройки")
+    focus = adb("shell", "dumpsys", "activity", "activities")
+    if "com.android.settings" not in focus:
+        raise RuntimeError("Android application settings did not open")
+    if stopped():
+        raise RuntimeError("Opening settings unexpectedly stopped the fixture")
+    # The user, not our app, chooses Android's Force stop control.
+    for node in nodes():
+        a = node.attrib
+        if a.get("text", "").lower() == "force stop" and a.get("enabled") == "true":
+            match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", a.get("bounds", ""))
+            if match:
+                x1, y1, x2, y2 = map(int, match.groups())
+                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                break
+    else:
+        raise RuntimeError("Enabled Android Force stop control not found: " + repr([n.attrib for n in nodes() if n.attrib.get("text")]))
+    time.sleep(1)
+    for label in ("OK", "Force stop"):
+        matches = [n for n in nodes() if n.attrib.get("text", "").lower() == label.lower() and n.attrib.get("enabled") == "true"]
+        if matches:
+            a = matches[-1].attrib
+            m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", a.get("bounds", ""))
+            if m:
+                x1, y1, x2, y2 = map(int, m.groups())
+                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                break
+    time.sleep(2)
+    if not stopped():
+        raise RuntimeError("Android did not stop the fixture after user confirmation")
+    print("Without Shizuku, usage access or network: search, cancel, app details and Android force stop passed")
+finally:
+    adb("uninstall", fixture, check=False)
+    adb("shell", "svc", "data", "enable", check=False)
+    adb("shell", "svc", "wifi", "enable", check=False)
