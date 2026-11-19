@@ -35,6 +35,15 @@ def wait_text(text, timeout=100):
     raise RuntimeError("Timed out waiting for: " + text)
 
 
+def reveal(text):
+    for _ in range(6):
+        if any(n.attrib.get("text") == text for n in nodes()):
+            return
+        adb("shell", "input", "swipe", "540", "1650", "540", "1000", "350")
+        time.sleep(0.5)
+    raise RuntimeError("UI element not visible: " + text + "; visible: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
+
+
 def open_optimization():
     tap("Оптимизировать сеть")
     verify("Оптимизировать сеть?")
@@ -85,9 +94,11 @@ try:
     open_optimization()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     wait_text("Вернулись из настроек. Проверьте, включили ли вы экономию трафика.")
+    reveal("Исходный замер недоступен; сравнение невозможно.")
     verify("Исходный замер недоступен; сравнение невозможно.")
     if status() != "Restrict background status: disabled":
         raise RuntimeError("Returning without a toggle changed Data Saver")
+    reveal("Закрыть")
     tap("Закрыть")
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
@@ -97,6 +108,7 @@ try:
     switch_on_in_settings()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     wait_text("Вернулись из настроек. Проверьте, включили ли вы экономию трафика.")
+    reveal("Я включил — измерить снова")
     tap("Я включил — измерить снова")
     wait_text("Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено.")
     if status() != "Restrict background status: enabled":
