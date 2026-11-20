@@ -437,8 +437,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(if (ready)
-                        "Включим системную экономию трафика. Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi. Уведомления могут задерживаться. Настройка останется включённой, пока вы её не выключите. Улучшение не гарантировано."
-                        else "Откроем настройки Android: включите «Экономия трафика». Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi, и может задерживать уведомления. Настройка действует на всём устройстве до отключения. Улучшение не гарантировано.")
+                        "Включим экономию трафика на лимитных сетях, включая Wi‑Fi. Уведомления могут задерживаться. Настройка действует до отключения; улучшение не гарантировано."
+                        else "Откроем настройки Android. Экономия трафика ограничивает фон на лимитных сетях, включая Wi‑Fi; уведомления могут задерживаться. Действует до отключения, улучшение не гарантировано.")
                     Row(Modifier.fillMaxWidth().clickable { if (ready) compareAutomatic = !compareAutomatic else compareManual = !compareManual }, verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = if (ready) compareAutomatic else compareManual, onCheckedChange = { if (ready) compareAutomatic = it else compareManual = it })
                         Text("Сравнить задержку до и после")

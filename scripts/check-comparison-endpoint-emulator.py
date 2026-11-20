@@ -61,6 +61,13 @@ def wait_for(label, timeout=90, scroll=False):
 def open_compare():
     tap("Оптимизировать сеть")
     tap("Сравнить задержку до и после")
+    # The dialog is scrollable on small displays, including Android 12.
+    current = list(nodes())
+    sizes = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in current]
+    sizes = [(int(m.group(1)), int(m.group(2))) for m in sizes if m]
+    if sizes:
+        width, height = max(sizes, key=lambda size: size[0] * size[1])
+        adb("shell", "input", "swipe", str(width // 2), str(int(height * .58)), str(width // 2), str(int(height * .42)), "350")
 
 
 # Emulator 10.0.2.2 is the host; never bind a public interface.
