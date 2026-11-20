@@ -701,8 +701,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     when (val result = loadResult) {
                         is MobileLoadResult.Success -> {
                             val sample = result.sample
-                            Text("За ${sample.durationMs / 1000} с: ↓ ${formatBytes(sample.received)} · ↑ ${formatBytes(sample.sent)}", style = MaterialTheme.typography.titleSmall)
-                            Text("В среднем: ↓ ${formatRate(sample.rxPerSecond)} · ↑ ${formatRate(sample.txPerSecond)}", style = MaterialTheme.typography.bodyMedium)
+                            Text("За ${sample.durationMs / 1000} с: ↓ ${formatBytes(sample.received)} · ↑ ${formatBytes(sample.sent)}\nВ среднем: ↓ ${formatRate(sample.rxPerSecond)} · ↑ ${formatRate(sample.txPerSecond)}", style = MaterialTheme.typography.bodyMedium)
                             Text("Расход всех мобильных интерфейсов, не скорость тарифа или отдельного приложения. Разница замеров не доказывает причину; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         is MobileLoadResult.Failure -> Text(when (result.reason) {

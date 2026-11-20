@@ -88,12 +88,7 @@ try:
     result = wait_result()
     print("Mobile counter measurement:", result)
     if result.startswith("За "):
-        for _ in range(5):
-            if any(t.startswith("В среднем: ↓ ") for t in texts()):
-                break
-            adb("shell", "input", "swipe", "540", "1750", "540", "1300", "350")
-            time.sleep(.5)
-        else:
+        if "В среднем: ↓ " not in result:
             raise RuntimeError("Successful measurement lacks average")
     # Counters and virtual connectivity vary by emulator; a failure is not a zero or success.
     elif result == "Для замера подключите мобильный интернет.":
