@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Exercise a selected TCP endpoint on a disposable emulator, not a personal device."""
+import os
+import re
+import runpy
+import socket
+import sys
+import threading
+import time
+
+if os.environ.get("AUDIT_DISPOSABLE_EMULATOR") != "yes" or len(sys.argv) != 2:
+    raise SystemExit("Only use on a disposable emulator: debug-apk")
+
+h = runpy.run_path("scripts/audit-release-emulator.py")
+adb, install, start, tap, verify, nodes, alive = (h[k] for k in
+    ("adb", "install", "start", "tap", "verify_screen", "nodes", "alive"))
+
+
+def report_exception(kind, value, tb):
+    import traceback
+    traceback.print_exception(kind, value, tb)
+    try:
+        visible = repr([(n.attrib.get("text"), n.attrib.get("enabled")) for n in nodes() if n.attrib.get("text")])
+    except Exception:
+        visible = "unavailable"
+    print("::error::" + (str(value) + "; visible: " + visible).replace("\n", " ")[:2500], flush=True)
+
+
+sys.excepthook = report_exception
+
+
+def replace_text(label, value):
+    tap(label)
+    # Some Android numeric keyboards do not honor Ctrl+A; erase from the end.
+    adb("shell", "input", "keyevent", "KEYCODE_MOVE_END", *(["KEYCODE_DEL"] * 32))
+    adb("shell", "input", "text", value)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(1)
+
+
+def wait_for(label, timeout=90, scroll=False):
+    deadline = time.monotonic() + timeout
+    count = 0
+    while time.monotonic() < deadline:
+        current = list(nodes())
+        if any(n.attrib.get("text") == label for n in current):
+            return
+        if scroll and count % 4 == 0:
+            sizes = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in current]
+            sizes = [(int(m.group(1)), int(m.group(2))) for m in sizes if m]
+            if sizes:
+                width, height = max(sizes, key=lambda size: size[0] * size[1])
+                first, last = ((.70, .48) if count % 8 == 0 else (.48, .70))
+                adb("shell", "input", "swipe", str(width // 2), str(int(height * first)), str(width // 2), str(int(height * last)), "350")
+        count += 1
+        alive()
+        time.sleep(1)
+    raise RuntimeError("Not visible: " + label + "; UI: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
+
+
+def open_compare():
+    tap("Оптимизировать сеть")
+    tap("Сравнить задержку до и после")
+    # The dialog is scrollable on small displays, including Android 12.
+    current = list(nodes())
+    sizes = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in current]
+    sizes = [(int(m.group(1)), int(m.group(2))) for m in sizes if m]
+    if sizes:
+        width, height = max(sizes, key=lambda size: size[0] * size[1])
+        adb("shell", "input", "swipe", str(width // 2), str(int(height * .58)), str(width // 2), str(int(height * .42)), "350")
+
+
+# Emulator 10.0.2.2 is the host; never bind a public interface.
+server = socket.socket()
+server.bind(("127.0.0.1", 0))
+server.listen(16)
+server.settimeout(.5)
+port = server.getsockname()[1]
+connections = []
+stop = threading.Event()
+
+
+def accept_connections():
+    while not stop.is_set():
+        try:
+            conn, addr = server.accept()
+            connections.append(addr)
+            conn.close()
+        except socket.timeout:
+            pass
+        except OSError:
+            break
+
+thread = threading.Thread(target=accept_connections, daemon=True)
+thread.start()
+adb("uninstall", h["PACKAGE"], check=False)
+adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false")
+adb("shell", "dumpsys", "battery", "set", "level", "90")
+adb("shell", "svc", "wifi", "disable")
+adb("shell", "svc", "data", "enable")
+try:
+    install(sys.argv[1])
+    start()
+    tap("Продолжить")
+    open_compare()
+    tap("Адрес: yandex.ru:443")
+    replace_text("yandex.ru", "10.0.2.2")
+    replace_text("443", "65536")
+    verify("Проверьте адрес и порт от 1 до 65535.")
+    # Compose can report a disabled button's text child as enabled. Verify behavior instead.
+    tap("Применить адрес")
+    verify("Адрес для сравнения")
+    verify("Проверьте адрес и порт от 1 до 65535.")
+    if connections:
+        raise RuntimeError("Invalid input caused a TCP connection")
+    replace_text("65536", str(port))
+    tap("Применить адрес")
+    verify("Адрес: 10.0.2.2:" + str(port))
+    tap("Отмена")
+    # Force-stop and relaunch: choice is stored, not only held by Compose.
+    adb("shell", "am", "force-stop", h["PACKAGE"])
+    start()
+    for attempt in range(3):
+        # The emulator's simulated cellular network can take time to become active.
+        time.sleep(10)
+        open_compare()
+        verify("Адрес: 10.0.2.2:" + str(port))
+        before_connections = len(connections)
+        tap("Начать")
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            if "com.android.settings" in adb("shell", "dumpsys", "activity", "activities"):
+                break
+            alive()
+            time.sleep(1)
+        else:
+            raise RuntimeError("Settings did not open after baseline")
+        series_connections = len(connections) - before_connections
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        wait_for("Проверили настройку?")
+        visible = {n.attrib.get("text") for n in nodes()}
+        if "Я включил — измерить снова" in visible:
+            if not 4 <= series_connections <= 6:
+                raise RuntimeError("Usable baseline did not connect to selected endpoint: " + str(series_connections))
+            break
+        unavailable = "Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android."
+        if unavailable not in visible:
+            raise RuntimeError("Expected a usable or explicitly unavailable baseline: " + repr(visible))
+        print("Baseline unavailable on attempt", attempt + 1, "connections:", series_connections, flush=True)
+        tap("Понятно")
+        if attempt == 2:
+            if "Restrict background status: disabled" not in adb("shell", "cmd", "netpolicy", "get", "restrict-background"):
+                raise RuntimeError("Unexpected system policy change after unavailable baseline")
+            print("::warning::Emulator cellular route could not complete the selected endpoint baseline; TCP series was not verified.", flush=True)
+            sys.exit(0)
+        tap("Главная")
+    before_after = len(connections)
+    wait_for("Я включил — измерить снова")
+    tap("Я включил — измерить снова")
+    wait_for("Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено.", scroll=True)
+    wait_for("Цель замера: 10.0.2.2:" + str(port), scroll=True)
+    if not 4 <= len(connections) - before_after <= 6:
+        raise RuntimeError("Repeat measurement did not connect to the same endpoint: " + str(len(connections) - before_after))
+    if "Restrict background status: disabled" not in adb("shell", "cmd", "netpolicy", "get", "restrict-background"):
+        raise RuntimeError("Unexpected system policy change")
+    print("Custom address, local validation, persistence and two usable TCP series passed")
+finally:
+    stop.set()
+    server.close()
+    thread.join(timeout=2)
+    adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false", check=False)
+    adb("shell", "svc", "data", "enable", check=False)
+    adb("shell", "svc", "wifi", "enable", check=False)
+    adb("shell", "dumpsys", "battery", "reset", check=False)

@@ -4,10 +4,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -21,6 +23,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -44,6 +48,7 @@ import com.doxaiz.netoptimizer.core.traffic.TrafficRanking
 import com.doxaiz.netoptimizer.core.traffic.TrafficSort
 import com.doxaiz.netoptimizer.core.traffic.TrafficWindow
 import com.doxaiz.netoptimizer.core.traffic.LoadComparison
+import com.doxaiz.netoptimizer.core.traffic.ComparisonEndpoint
 import com.doxaiz.netoptimizer.core.traffic.LoadOptimizationController
 import com.doxaiz.netoptimizer.core.traffic.LoadPhase
 import com.doxaiz.netoptimizer.core.traffic.LoadSample
@@ -93,6 +98,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var dataSaverMessage by remember { mutableStateOf<String?>(null) }
     var pendingOptimization by remember { mutableStateOf(false) }
     var compareManual by remember { mutableStateOf(false) }
+    var compareAutomatic by remember { mutableStateOf(true) }
+    val endpointPreferences = remember(context) { context.applicationContext.getSharedPreferences("comparison_endpoint", android.content.Context.MODE_PRIVATE) }
+    var comparisonHost by rememberSaveable { mutableStateOf(if (endpointPreferences.contains("host")) endpointPreferences.getString("host", "") ?: "" else ComparisonEndpoint.DEFAULT_HOST) }
+    var comparisonPort by rememberSaveable { mutableStateOf(if (endpointPreferences.contains("port")) endpointPreferences.getString("port", "") ?: "" else ComparisonEndpoint.DEFAULT_PORT) }
+    var endpointEditorOpen by remember { mutableStateOf(false) }
+    var endpointDraftHost by remember { mutableStateOf("") }
+    var endpointDraftPort by remember { mutableStateOf("") }
     var manualComparisonRequested by rememberSaveable { mutableStateOf(false) }
     var manualPickerOpen by remember { mutableStateOf(false) }
     var manualAppQuery by remember { mutableStateOf("") }
@@ -131,6 +143,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
     var loadResult by remember { mutableStateOf<MobileLoadResult?>(null) }
+    val trafficListState = rememberLazyListState()
+    LaunchedEffect(loadResult) {
+        // Bring the result into view only while the user is still looking at its card.
+        if (loadResult != null && trafficListState.layoutInfo.visibleItemsInfo.any { it.index == 2 }) {
+            trafficListState.animateScrollToItem(2)
+        }
+    }
     var previousLoad by remember { mutableStateOf<MobileLoadSample?>(null) }
     var loadMeasuring by remember { mutableStateOf(false) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
@@ -163,7 +182,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     }
                     optimizer.onStop()
                     pendingStop = null; pendingBatch = false; pendingDataSaver = null; pendingOptimization = false
-                    pendingManualApp = null; manualPickerOpen = false
+                    pendingManualApp = null; manualPickerOpen = false; endpointEditorOpen = false
                     if (manualAppJob?.isActive == true && !awaitingAppSettings) {
                         manualAppJob?.cancel()
                         manualAppNotice = "Действие прервано; настройки приложения не открыты."
@@ -216,6 +235,12 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         }
     }
 
+    val comparisonTarget = remember(comparisonHost, comparisonPort) { ComparisonEndpoint.parse(comparisonHost, comparisonPort) }
+    fun editComparisonEndpoint() {
+        endpointDraftHost = comparisonHost
+        endpointDraftPort = comparisonPort
+        endpointEditorOpen = true
+    }
     fun isProtected(app: AppTraffic) = app.systemProtected || app.packageNames.any { it in protectedApps }
     val ranked = remember(summary?.apps, trafficSort) { TrafficRanking.sort(summary?.apps.orEmpty(), trafficSort) }
     val shown = remember(ranked, filter, protectedApps) { ranked.filter { filter == "all" || isProtected(it) } }
@@ -262,6 +287,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
 
     fun startManualOptimization(compare: Boolean) {
         if (dataSaverBusy || optimizationJob?.isActive == true || awaitingManualSettings) return
+        val target = comparisonTarget
+        if (compare && target == null) { optimizationMessage = "Проверьте адрес TCP-замера."; return }
         manualSettingsReturned = false
         manualComparisonRequested = compare
         dataSaverBusy = true
@@ -269,7 +296,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         optimizationJob = scope.launch {
             try {
                 if (compare) {
-                    optimizer.start()
+                    optimizer.start(requireNotNull(target))
                     snapshotFlow { optimizer.state.phase }.first { it == LoadPhase.READY || it == LoadPhase.IDLE }
                 } else optimizer.clear()
                 currentCoroutineContext().ensureActive()
@@ -319,24 +346,28 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         }
     }
 
-    fun startOptimization() {
+    fun startOptimization(compare: Boolean) {
         if (dataSaverBusy || optimizationJob?.isActive == true) return
+        val target = comparisonTarget
+        if (compare && target == null) { optimizationMessage = "Проверьте адрес TCP-замера."; return }
         manualSettingsReturned = false
         dataSaverBusy = true
-        optimizationMessage = "Измеряем задержку до изменений…"
+        optimizationMessage = if (compare) "Измеряем задержку до изменений…" else "Проверяем настройку…"
         optimizationJob = scope.launch {
             try {
-                optimizer.start()
-                val baselinePhase = snapshotFlow { optimizer.state.phase }
-                    .first { it == LoadPhase.READY || it == LoadPhase.IDLE }
-                if (baselinePhase != LoadPhase.READY) {
-                    optimizationMessage = (optimizer.state.message.ifEmpty { "Исходный замер не удался." }) + " Настройка не изменена."
-                    return@launch
-                }
+                if (compare) {
+                    optimizer.start(requireNotNull(target))
+                    val baselinePhase = snapshotFlow { optimizer.state.phase }
+                        .first { it == LoadPhase.READY || it == LoadPhase.IDLE }
+                    if (baselinePhase != LoadPhase.READY) {
+                        optimizationMessage = (optimizer.state.message.ifEmpty { "Исходный замер не удался." }) + " Настройка не изменена."
+                        return@launch
+                    }
+                } else optimizer.clear()
                 optimizationMessage = "Проверяем и ограничиваем фоновые загрузки…"
                 val result = OneTapOptimization.apply(object : OneTapOperations {
                     override fun canContinue() = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
-                        ShizukuManager.isReady() && optimizer.canApplyChange()
+                        ShizukuManager.isReady() && (!compare || optimizer.canApplyChange())
                     override suspend fun readGlobalSetting() = ShizukuManager.globalDataSaverEnabled()
                     override suspend fun enableDataSaver() = ShizukuManager.setDataSaver(true)
                 })
@@ -344,6 +375,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                 dataSaverStatus = dataSaver.status()
                 when (result) {
                     OneTapResult.ENABLED -> {
+                        if (!compare) {
+                            optimizationMessage = "Экономия трафика включена. Сравнение не выполнялось."
+                            return@launch
+                        }
                         optimizationMessage = "Фоновые загрузки ограничены. Повторяем замер…"
                         delay(1_000)
                         if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) || !optimizer.canApplyChange()) {
@@ -373,25 +408,55 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         }
     }
 
-    if (pendingOptimization) {
+    if (endpointEditorOpen) {
+        val draftTarget = remember(endpointDraftHost, endpointDraftPort) { ComparisonEndpoint.parse(endpointDraftHost, endpointDraftPort) }
+        AlertDialog(
+            onDismissRequest = { endpointEditorOpen = false },
+            title = { Text("Адрес для сравнения") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Укажите домен или IP и TCP-порт. Это не пинг игрового UDP-сервера.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(value = endpointDraftHost, onValueChange = { endpointDraftHost = it },
+                        label = { Text("Домен или IP") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = endpointDraftPort, onValueChange = { endpointDraftPort = it },
+                        label = { Text("TCP-порт") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (draftTarget == null) Text("Проверьте адрес и порт от 1 до 65535.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { endpointDraftHost = ComparisonEndpoint.DEFAULT_HOST; endpointDraftPort = ComparisonEndpoint.DEFAULT_PORT }) { Text("По умолчанию") }
+                }
+            },
+            confirmButton = { TextButton(enabled = draftTarget != null, onClick = {
+                if (draftTarget != null) {
+                    comparisonHost = draftTarget.host
+                    comparisonPort = draftTarget.port.toString()
+                    endpointPreferences.edit().putString("host", comparisonHost).putString("port", comparisonPort).apply()
+                    endpointEditorOpen = false
+                }
+            }) { Text("Применить адрес") } },
+            dismissButton = { TextButton(onClick = { endpointEditorOpen = false }) { Text("Отмена") } }
+        )
+    }
+
+    if (pendingOptimization && !endpointEditorOpen) {
         val ready = ShizukuManager.isReady()
         AlertDialog(
             onDismissRequest = { pendingOptimization = false },
             title = { Text("Оптимизировать сеть?") },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(if (ready)
-                        "Измерим задержку, включим системную экономию трафика и повторим замер. Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi. Уведомления могут задерживаться. Настройка останется включённой, пока вы её не выключите. Улучшение не гарантировано."
-                        else "Откроем настройки Android: включите «Экономия трафика». Она ограничивает часть фоновых загрузок на лимитных сетях, включая лимитный Wi‑Fi, и может задерживать уведомления. Настройка действует на всём устройстве до отключения. Улучшение не гарантировано.")
-                    if (!ready) Row(Modifier.fillMaxWidth().clickable { compareManual = !compareManual }, verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = compareManual, onCheckedChange = { compareManual = it })
+                        "Включим экономию трафика на лимитных сетях, включая Wi‑Fi. Уведомления могут задерживаться. Настройка действует до отключения; улучшение не гарантировано."
+                        else "Откроем настройки Android. Экономия трафика ограничивает фон на лимитных сетях, включая Wi‑Fi; уведомления могут задерживаться. Действует до отключения, улучшение не гарантировано.")
+                    Row(Modifier.fillMaxWidth().clickable { if (ready) compareAutomatic = !compareAutomatic else compareManual = !compareManual }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = if (ready) compareAutomatic else compareManual, onCheckedChange = { if (ready) compareAutomatic = it else compareManual = it })
                         Text("Сравнить задержку до и после")
                     }
+                    if (if (ready) compareAutomatic else compareManual) EndpointButton(comparisonTarget?.let(ComparisonEndpoint::label), ::editComparisonEndpoint)
                 }
             },
             confirmButton = { TextButton(onClick = {
                 pendingOptimization = false
-                if (ready) startOptimization() else startManualOptimization(compareManual)
+                if (ready) startOptimization(compareAutomatic) else startManualOptimization(compareManual)
             }) { Text("Начать") } },
             dismissButton = { TextButton(onClick = { pendingOptimization = false }) { Text("Отмена") } }
         )
@@ -419,6 +484,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         pendingManualApp = null
         if (manualAppBusy || dataSaverBusy || awaitingManualSettings || awaitingAppSettings) return
         val compare = backgroundData && manualAppCompare
+        val target = comparisonTarget
+        if (compare && target == null) { manualAppNotice = "Проверьте адрес TCP-замера."; return }
         appSettingsReturned = false
         optimizationMessage = null
         manualAppBusy = true
@@ -430,7 +497,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     return@launch
                 }
                 if (compare) {
-                    optimizer.start()
+                    optimizer.start(requireNotNull(target))
                     snapshotFlow { optimizer.state.phase }.first { it == LoadPhase.READY || it == LoadPhase.IDLE }
                 } else optimizer.clear()
                 currentCoroutineContext().ensureActive()
@@ -518,7 +585,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         )
     }
 
-    pendingManualApp?.let { app ->
+    pendingManualApp?.takeIf { !endpointEditorOpen }?.let { app ->
         AlertDialog(
             onDismissRequest = { pendingManualApp = null },
             title = { Text("Настроить ${app.label}?") },
@@ -539,6 +606,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         Checkbox(checked = manualAppCompare, onCheckedChange = { manualAppCompare = it })
                         Text("Сравнить задержку до и после")
                     }
+                    if (manualAppCompare) EndpointButton(comparisonTarget?.let(ComparisonEndpoint::label), ::editComparisonEndpoint)
                 }
             },
             confirmButton = { TextButton(onClick = { openManualApp(app, backgroundData = true) }) { Text("Настроить фон") } },
@@ -658,15 +726,17 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         )
     }
 
-    LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), state = trafficListState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
         item {
             LoadOptimizationCard(optimizer, details, dataSaverStatus, globalDataSaver, dataSaverBusy || manualAppBusy, dataSaverMessage, optimizationMessage, optimizationJob?.isActive == true || manualAppJob?.isActive == true,
-                onOptimize = { compareManual = false; pendingOptimization = true },
+                onOptimize = { compareManual = false; compareAutomatic = true; pendingOptimization = true },
                 onManualApps = { manualAppQuery = ""; manualPickerOpen = true },
+                endpointLabel = comparisonTarget?.let(ComparisonEndpoint::label), onEditEndpoint = ::editComparisonEndpoint,
+                onStartComparison = { comparisonTarget?.let { optimizer.start(it) } ?: run { optimizationMessage = "Проверьте адрес TCP-замера." } },
                 manualAppBusy = manualAppBusy, manualAppNotice = manualAppNotice,
                 onCancelOptimization = { manualAppJob?.cancel(); optimizationJob?.cancel(); optimizer.clear(); manualAppNotice = "Действие остановлено."; optimizationMessage = "Остановлено. Настройка могла измениться — проверьте её ниже." },
                 onDirectChange = { pendingDataSaver = it }, openDataSaver = { dataSaver.openSettings() })
@@ -835,6 +905,16 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
 }
 
 @Composable
+private fun EndpointButton(label: String?, onEdit: () -> Unit, enabled: Boolean = true) {
+    Column {
+        OutlinedButton(onClick = onEdit, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+            Text("Адрес: ${label ?: "не задан"}", maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Text("DNS (для домена) и TCP-запросы: провайдер DNS и целевой сервер могут их видеть.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun LoadOptimizationCard(
     controller: LoadOptimizationController,
     details: Boolean,
@@ -846,6 +926,9 @@ private fun LoadOptimizationCard(
     optimizationRunning: Boolean,
     onOptimize: () -> Unit,
     onManualApps: () -> Unit,
+    endpointLabel: String?,
+    onEditEndpoint: () -> Unit,
+    onStartComparison: () -> Unit,
     manualAppBusy: Boolean,
     manualAppNotice: String?,
     onCancelOptimization: () -> Unit,
@@ -866,6 +949,8 @@ private fun LoadOptimizationCard(
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 TextButton(onClick = onCancelOptimization) { Text("Остановить") }
             }
+            state.endpoint?.let { Text("Цель замера: $it", style = MaterialTheme.typography.bodySmall) }
+            state.resolvedEndpoint?.takeIf { it != state.endpoint }?.let { Text("Подключение к IP: $it", style = MaterialTheme.typography.bodySmall) }
             state.before?.let { Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium) }
             state.after?.let { after ->
                 Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)
@@ -889,7 +974,10 @@ private fun LoadOptimizationCard(
                 Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!optimizationRunning && details) {
                 when (state.phase) {
-                    LoadPhase.IDLE -> OutlinedButton(onClick = controller::start, enabled = !dataSaverBusy, modifier = Modifier.fillMaxWidth()) { Text("Начать сравнение") }
+                    LoadPhase.IDLE -> {
+                        EndpointButton(endpointLabel, onEditEndpoint, enabled = !dataSaverBusy)
+                        OutlinedButton(onClick = onStartComparison, enabled = !dataSaverBusy && endpointLabel != null, modifier = Modifier.fillMaxWidth()) { Text("Начать сравнение") }
+                    }
                     LoadPhase.BASELINE, LoadPhase.CHECKING -> LinearProgressIndicator(Modifier.fillMaxWidth())
                     LoadPhase.READY, LoadPhase.RESULT -> OutlinedButton(onClick = controller::measureAfter, enabled = !dataSaverBusy, modifier = Modifier.fillMaxWidth()) { Text("Измерить после изменений") }
                 }
@@ -914,7 +1002,7 @@ private fun LoadOptimizationCard(
             dataSaverMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
             if (settingsUnavailable) Text("Не удалось открыть настройки. Найдите «Экономия трафика» в настройках Android вручную.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             Text("Настройка общая для устройства и может задержать уведомления. Без Shizuku включите её в Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Задержка до сайта Яндекса, не скорость и не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("TCP-задержка до выбранного адреса, не скорость и не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (details) {
                 Text("Шесть TCP-подключений к одному IP; требуется минимум четыре ответа. При USB-модеме проверьте загрузки на ПК. Остановка приложений доступна ниже после подтверждения и влияет на всё приложение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Для сравнения скорости используйте два спидтеста в Инструменты → Замеры (до 15 МБ каждый). При сворачивании замер отменяется; сравнение хранится до 10 минут и сбрасывается при смене сети.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -13,6 +13,19 @@ adb, install, start = h["adb"], h["install"], h["start"]
 tap, verify = h["tap"], h["verify_screen"]
 
 
+def report_exception(kind, value, tb):
+    import traceback
+    traceback.print_exception(kind, value, tb)
+    try:
+        visible = repr([n.attrib.get("text") for n in h["nodes"]() if n.attrib.get("text")])
+    except Exception:
+        visible = "unavailable"
+    print("::error::" + (str(value) + "; visible: " + visible).replace("\n", " ")[:2500], flush=True)
+
+
+sys.excepthook = report_exception
+
+
 def viewport():
     matches = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in h["nodes"]()]
     sizes = [(int(m.group(1)), int(m.group(2))) for m in matches if m]
@@ -108,6 +121,20 @@ try:
     verify("Подключите мобильный интернет; без него замер недоступен. Настройка не изменена.")
     if system_data_saver() != "Restrict background status: disabled":
         raise RuntimeError("Offline optimization unexpectedly changed Data Saver")
+    # An explicit opt-out works without network or battery-dependent probes.
+    adb("shell", "dumpsys", "battery", "set", "level", "10")
+    tap("Главная")
+    tap("Оптимизировать сеть")
+    tap("Сравнить задержку до и после")
+    tap("Начать")
+    scroll_to("Экономия трафика включена. Сравнение не выполнялось.")
+    if system_data_saver() != "Restrict background status: enabled":
+        raise RuntimeError("Opt-out did not enable Data Saver")
+    adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false")
+    adb("shell", "dumpsys", "battery", "set", "level", "90")
+    if os.environ.get("SHIZUKU_OFFLINE_ONLY") == "yes":
+        print("Shizuku offline: mandatory baseline abort and explicit opt-out passed")
+        sys.exit(0)
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
     tap("Главная")
@@ -131,3 +158,6 @@ try:
     print("One-button flow confirmed, measured twice and enabled Android Data Saver")
 finally:
     adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false", check=False)
+    adb("shell", "dumpsys", "battery", "reset", check=False)
+    adb("shell", "svc", "data", "enable", check=False)
+    adb("shell", "svc", "wifi", "enable", check=False)
