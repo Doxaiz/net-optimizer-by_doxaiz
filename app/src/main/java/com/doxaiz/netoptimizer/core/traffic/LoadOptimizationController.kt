@@ -26,7 +26,8 @@ internal data class LoadState(
     val phase: LoadPhase = LoadPhase.IDLE,
     val before: LoadSample? = null,
     val after: LoadSample? = null,
-    val message: String = ""
+    val message: String = "",
+    val endpoint: String? = null
 )
 
 /** User-driven foreground tests; between tests only a temporary network-change callback remains. */
@@ -42,7 +43,7 @@ internal class LoadOptimizationController(private val context: Context, private 
     private var expiry: Job? = null
     private var startedAtMs: Long? = null
 
-    fun start() {
+    fun start(selectedTarget: PingTarget) {
         clear()
         val initial = CellularNetwork.active(context)
         if (initial == null || manager == null) {
@@ -83,7 +84,8 @@ internal class LoadOptimizationController(private val context: Context, private 
             return
         }
         startedAtMs = SystemClock.elapsedRealtime()
-        state = LoadState(phase = LoadPhase.BASELINE, message = "Определяем адрес и измеряем исходную TCP-задержку…")
+        val endpointLabel = ComparisonEndpoint.label(selectedTarget)
+        state = LoadState(phase = LoadPhase.BASELINE, message = "Определяем адрес и измеряем исходную TCP-задержку…", endpoint = endpointLabel)
         expiry = scope.launch {
             delay(10 * 60_000L)
             clear("Время сравнения истекло. Начните заново.")
@@ -91,14 +93,17 @@ internal class LoadOptimizationController(private val context: Context, private 
         measurement = scope.launch {
             try {
                 val address = withContext(Dispatchers.IO) {
-                    try { initial.getAllByName("yandex.ru").firstOrNull()?.hostAddress } catch (_: Exception) { null }
+                    try { initial.getAllByName(selectedTarget.host).firstOrNull()?.hostAddress }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { null }
                 }
                 if (!valid(currentGuard, initial)) return@launch
                 if (address == null) {
                     clear("Не удалось определить адрес сайта. Повторите позже.")
                     return@launch
                 }
-                val pinnedTarget = PingTarget("Яндекс", address, 443, "")
+                // Both runs must use the same resolved IP and selected TCP port.
+                val pinnedTarget = selectedTarget.copy(host = address)
                 val result = PingTester(context).test(pinnedTarget, LoadComparison.ATTEMPTS)
                 if (!valid(currentGuard, initial)) return@launch
                 val sample = result.asLoadSample()
@@ -107,7 +112,7 @@ internal class LoadOptimizationController(private val context: Context, private 
                     return@launch
                 }
                 target = pinnedTarget
-                state = LoadState(phase = LoadPhase.READY, before = sample, message = "Теперь вручную приостановите ненужные загрузки или выберите приложение ниже, затем повторите замер.")
+                state = LoadState(phase = LoadPhase.READY, before = sample, message = "Теперь вручную приостановите ненужные загрузки или выберите приложение ниже, затем повторите замер.", endpoint = endpointLabel)
                 measurement = null
             } catch (e: CancellationException) {
                 throw e
@@ -135,16 +140,16 @@ internal class LoadOptimizationController(private val context: Context, private 
                 if (!valid(currentGuard, initial)) return@launch
                 val sample = result.asLoadSample()
                 state = if (result.status == PingStatus.COMPLETED && LoadComparison.usable(sample)) {
-                    LoadState(phase = LoadPhase.RESULT, before = before, after = sample)
+                    LoadState(phase = LoadPhase.RESULT, before = before, after = sample, endpoint = state.endpoint)
                 } else {
-                    LoadState(phase = LoadPhase.READY, before = before, message = "Повторный замер не удался: нужно не менее 4 успешных подключений из 6. Проверьте заряд и попробуйте ещё раз.")
+                    LoadState(phase = LoadPhase.READY, before = before, message = "Повторный замер не удался: нужно не менее 4 успешных подключений из 6. Проверьте заряд и попробуйте ещё раз.", endpoint = state.endpoint)
                 }
                 measurement = null
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 if (guard === currentGuard) {
-                    state = LoadState(phase = LoadPhase.READY, before = before, message = "Не удалось выполнить повторный замер. Попробуйте ещё раз.")
+                    state = LoadState(phase = LoadPhase.READY, before = before, message = "Не удалось выполнить повторный замер. Попробуйте ещё раз.", endpoint = state.endpoint)
                     measurement = null
                 }
             }
