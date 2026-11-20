@@ -1,18 +1,20 @@
 package com.doxaiz.netoptimizer.core.net
 
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import com.doxaiz.netoptimizer.core.session.SessionNetworkGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import java.net.Socket
 
 /** Цель для пинг-теста: игра, сервис или свой IP/домен */
 data class PingTarget(val name: String, val host: String, val port: Int, val hint: String)
 
-enum class PingStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, RESOLUTION_FAILED, LOW_BATTERY }
+enum class PingStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, NETWORK_CHECK_UNAVAILABLE, RESOLUTION_FAILED, LOW_BATTERY }
 
 data class PingResult(
     val target: PingTarget,
@@ -54,29 +56,38 @@ class PingTester(private val context: android.content.Context) {
         withContext(Dispatchers.IO) {
             require(attempts > 0) { "attempts must be positive" }
             val network = CellularNetwork.active(context)
-                ?: return@withContext result(target, emptyList(), PingStatus.NO_CELLULAR)
-            if (!CellularNetwork.batteryOk(context)) return@withContext result(target, emptyList(), PingStatus.LOW_BATTERY)
-            val address = try { network.getAllByName(target.host).firstOrNull() } catch (_: Exception) { null }
-            currentCoroutineContext().ensureActive()
-            if (CellularNetwork.active(context) != network) {
-                return@withContext result(target, emptyList(), PingStatus.NETWORK_CHANGED)
-            }
-            if (address == null) return@withContext result(target, emptyList(), PingStatus.RESOLUTION_FAILED)
-            var interrupted: PingStatus? = null
-            val samples = TcpProbeSequence.run(attempts, beforeAttempt = {
-                when {
-                    CellularNetwork.active(context) != network -> { interrupted = PingStatus.NETWORK_CHANGED; false }
-                    !CellularNetwork.batteryOk(context) -> { interrupted = PingStatus.LOW_BATTERY; false }
-                    else -> true
+                ?: return@withContext PingMeasurementPlan.result(target, emptyList(), PingStatus.NO_CELLULAR)
+            if (!CellularNetwork.batteryOk(context)) return@withContext PingMeasurementPlan.result(target, emptyList(), PingStatus.LOW_BATTERY)
+            val manager = context.getSystemService(ConnectivityManager::class.java)
+                ?: return@withContext PingMeasurementPlan.result(target, emptyList(), PingStatus.NETWORK_CHECK_UNAVAILABLE)
+            val guard = SessionNetworkGuard(network)
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(available: Network) { guard.available(available) }
+                override fun onLost(lost: Network) { guard.lost(lost) }
+                override fun onCapabilitiesChanged(current: Network, caps: NetworkCapabilities) {
+                    guard.capabilities(current, caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
                 }
-            }, connect = { connectOnce(network, address, target.port) }, onProgress = onProgress)
-            interrupted?.let { return@withContext result(target, samples, it) }
-            val status = when {
-                CellularNetwork.active(context) != network -> PingStatus.NETWORK_CHANGED
-                !CellularNetwork.batteryOk(context) -> PingStatus.LOW_BATTERY
-                else -> PingStatus.COMPLETED
             }
-            result(target, samples, status)
+            try {
+                manager.registerDefaultNetworkCallback(callback)
+            } catch (_: Exception) {
+                return@withContext PingMeasurementPlan.result(target, emptyList(), PingStatus.NETWORK_CHECK_UNAVAILABLE)
+            }
+            try {
+                PingMeasurementPlan.run(target, attempts,
+                    sameNetwork = { guard.valid(CellularNetwork.active(context)) },
+                    batteryOk = { CellularNetwork.batteryOk(context) },
+                    resolve = {
+                        try { network.getAllByName(target.host).firstOrNull() }
+                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (_: Exception) { null }
+                    },
+                    connect = { address -> connectOnce(network, address, target.port) },
+                    onProgress = onProgress)
+            } finally {
+                try { manager.unregisterNetworkCallback(callback) } catch (_: Exception) { }
+            }
         }
 
     /** Параллельный тест всех целей (быстро даже на плохой сети) */
@@ -84,17 +95,6 @@ class PingTester(private val context: android.content.Context) {
         targets.map { target ->
             async(Dispatchers.IO) { target.name to test(target) }
         }.awaitAll().toMap()
-    }
-
-    private fun result(target: PingTarget, samples: List<Int>, status: PingStatus): PingResult {
-        val summary = TcpProbeSummary.from(samples)
-        // Measurements from interrupted network transitions must not be presented as a complete test.
-        return PingResult(target,
-            if (status == PingStatus.COMPLETED) summary.averageMs else -1,
-            if (status == PingStatus.COMPLETED) summary.jitterMs else -1,
-            if (status == PingStatus.COMPLETED) summary.failedPercent else -1,
-            status == PingStatus.COMPLETED && summary.averageMs in 0..150 && summary.failedPercent == 0,
-            summary.attempts, summary.successes, status)
     }
 
     private fun connectOnce(network: android.net.Network, address: java.net.InetAddress, port: Int): Int {

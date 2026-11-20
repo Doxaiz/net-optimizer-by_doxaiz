@@ -165,6 +165,10 @@ class SessionController(
                         pause("Сессия приостановлена: мобильная сеть недоступна или изменилась.")
                         return@launch
                     }
+                    PingStatus.NETWORK_CHECK_UNAVAILABLE -> {
+                        pause("Сессия приостановлена: не удалось отследить мобильную сеть.")
+                        return@launch
+                    }
                     PingStatus.RESOLUTION_FAILED -> state = state.copy(message = "Не удалось определить адрес цели; повторяем замер.")
                     PingStatus.COMPLETED -> if (result.attemptsMade > 0) {
                         state = state.copy(progress = state.progress.addCompleted(result.avgMs, result.attemptsMade, result.successfulAttempts), message = "")

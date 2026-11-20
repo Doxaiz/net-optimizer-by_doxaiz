@@ -756,6 +756,7 @@ private fun probeShortDescription(result: PingResult): String = when (result.sta
     PingStatus.LOW_BATTERY -> "Пауза: заряд ниже 20% или неизвестен"
     PingStatus.NO_CELLULAR -> "Нет мобильной сети"
     PingStatus.NETWORK_CHANGED -> "Сеть изменилась"
+    PingStatus.NETWORK_CHECK_UNAVAILABLE -> "Проверка сети недоступна"
     PingStatus.RESOLUTION_FAILED -> "Адрес не найден"
     PingStatus.COMPLETED -> {
         val failed = result.attemptsMade - result.successfulAttempts
@@ -770,6 +771,7 @@ private fun PingDetails(result: PingResult) {
         PingStatus.LOW_BATTERY -> Text("Заряд ниже 20% или данные батареи недоступны. Замер остановлен.", color = MaterialTheme.colorScheme.error)
         PingStatus.NO_CELLULAR -> Text("Мобильное подключение не найдено. Проверьте сеть и повторите замер.", color = MaterialTheme.colorScheme.error)
         PingStatus.NETWORK_CHANGED -> Text("Сеть изменилась во время замера. Повторите проверку.", color = MaterialTheme.colorScheme.error)
+        PingStatus.NETWORK_CHECK_UNAVAILABLE -> Text("Не удалось отследить мобильную сеть. Повторите проверку.", color = MaterialTheme.colorScheme.error)
         PingStatus.RESOLUTION_FAILED -> Text("Не удалось определить IP-адрес цели через мобильную сеть. Проверьте адрес и повторите попытку.", color = MaterialTheme.colorScheme.error)
         PingStatus.COMPLETED -> {
             val failed = result.attemptsMade - result.successfulAttempts

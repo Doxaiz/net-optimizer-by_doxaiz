@@ -29,6 +29,7 @@ class HomeCheckSummaryTest {
 
     @Test fun statusExplainsLikelyCauseRatherThanInventingAnImprovement() {
         assertEquals("Сеть изменилась", homeCheckSummary(result(PingStatus.NETWORK_CHANGED)).headline)
+        assertEquals("Проверка сети недоступна", homeCheckSummary(result(PingStatus.NETWORK_CHECK_UNAVAILABLE)).headline)
         assertEquals("Проверка приостановлена", homeCheckSummary(result(PingStatus.LOW_BATTERY)).headline)
     }
 }
