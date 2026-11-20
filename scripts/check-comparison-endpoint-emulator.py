@@ -31,7 +31,8 @@ sys.excepthook = report_exception
 
 def replace_text(label, value):
     tap(label)
-    adb("shell", "input", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_A")
+    # Some Android numeric keyboards do not honor Ctrl+A; erase from the end.
+    adb("shell", "input", "keyevent", "KEYCODE_MOVE_END", *(["KEYCODE_DEL"] * 32))
     adb("shell", "input", "text", value)
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     time.sleep(1)
@@ -99,9 +100,12 @@ try:
     replace_text("yandex.ru", "10.0.2.2")
     replace_text("443", "65536")
     verify("Проверьте адрес и порт от 1 до 65535.")
-    apply_nodes = [n for n in nodes() if n.attrib.get("text") == "Применить адрес"]
-    if not apply_nodes or all(n.attrib.get("enabled") != "false" for n in apply_nodes):
-        raise RuntimeError("Invalid port must not be accepted")
+    # Compose can report a disabled button's text child as enabled. Verify behavior instead.
+    tap("Применить адрес")
+    verify("Адрес для сравнения")
+    verify("Проверьте адрес и порт от 1 до 65535.")
+    if connections:
+        raise RuntimeError("Invalid input caused a TCP connection")
     replace_text("65536", str(port))
     tap("Применить адрес")
     verify("Адрес: 10.0.2.2:" + str(port))
