@@ -16,6 +16,19 @@ adb, install, start, tap, verify, nodes, alive = (h[k] for k in
     ("adb", "install", "start", "tap", "verify_screen", "nodes", "alive"))
 
 
+def report_exception(kind, value, tb):
+    import traceback
+    traceback.print_exception(kind, value, tb)
+    try:
+        visible = repr([(n.attrib.get("text"), n.attrib.get("enabled")) for n in nodes() if n.attrib.get("text")])
+    except Exception:
+        visible = "unavailable"
+    print("::error::" + (str(value) + "; visible: " + visible).replace("\n", " ")[:2500], flush=True)
+
+
+sys.excepthook = report_exception
+
+
 def replace_text(label, value):
     tap(label)
     adb("shell", "input", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_A")

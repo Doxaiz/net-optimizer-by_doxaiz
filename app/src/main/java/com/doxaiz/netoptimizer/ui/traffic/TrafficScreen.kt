@@ -942,6 +942,7 @@ private fun LoadOptimizationCard(
                 TextButton(onClick = onCancelOptimization) { Text("Остановить") }
             }
             state.endpoint?.let { Text("Цель замера: $it", style = MaterialTheme.typography.bodySmall) }
+            state.resolvedEndpoint?.takeIf { it != state.endpoint }?.let { Text("Подключение к IP: $it", style = MaterialTheme.typography.bodySmall) }
             state.before?.let { Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium) }
             state.after?.let { after ->
                 Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)

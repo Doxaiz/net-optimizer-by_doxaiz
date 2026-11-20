@@ -27,7 +27,8 @@ internal data class LoadState(
     val before: LoadSample? = null,
     val after: LoadSample? = null,
     val message: String = "",
-    val endpoint: String? = null
+    val endpoint: String? = null,
+    val resolvedEndpoint: String? = null
 )
 
 /** User-driven foreground tests; between tests only a temporary network-change callback remains. */
@@ -112,7 +113,7 @@ internal class LoadOptimizationController(private val context: Context, private 
                     return@launch
                 }
                 target = pinnedTarget
-                state = LoadState(phase = LoadPhase.READY, before = sample, message = "Теперь вручную приостановите ненужные загрузки или выберите приложение ниже, затем повторите замер.", endpoint = endpointLabel)
+                state = LoadState(phase = LoadPhase.READY, before = sample, message = "Теперь вручную приостановите ненужные загрузки или выберите приложение ниже, затем повторите замер.", endpoint = endpointLabel, resolvedEndpoint = ComparisonEndpoint.label(pinnedTarget))
                 measurement = null
             } catch (e: CancellationException) {
                 throw e
@@ -126,7 +127,7 @@ internal class LoadOptimizationController(private val context: Context, private 
         val initial = network ?: return
         val currentGuard = guard ?: return
         val pinned = target ?: return
-        val before = state.before ?: return
+        if (state.before == null) return
         if (state.phase != LoadPhase.READY && state.phase != LoadPhase.RESULT) return
         if (!valid(currentGuard, initial)) return
         if (!CellularNetwork.batteryOk(context)) {
@@ -140,16 +141,16 @@ internal class LoadOptimizationController(private val context: Context, private 
                 if (!valid(currentGuard, initial)) return@launch
                 val sample = result.asLoadSample()
                 state = if (result.status == PingStatus.COMPLETED && LoadComparison.usable(sample)) {
-                    LoadState(phase = LoadPhase.RESULT, before = before, after = sample, endpoint = state.endpoint)
+                    state.copy(phase = LoadPhase.RESULT, after = sample, message = "")
                 } else {
-                    LoadState(phase = LoadPhase.READY, before = before, message = "Повторный замер не удался: нужно не менее 4 успешных подключений из 6. Проверьте заряд и попробуйте ещё раз.", endpoint = state.endpoint)
+                    state.copy(phase = LoadPhase.READY, after = null, message = "Повторный замер не удался: нужно не менее 4 успешных подключений из 6. Проверьте заряд и попробуйте ещё раз.")
                 }
                 measurement = null
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 if (guard === currentGuard) {
-                    state = LoadState(phase = LoadPhase.READY, before = before, message = "Не удалось выполнить повторный замер. Попробуйте ещё раз.", endpoint = state.endpoint)
+                    state = state.copy(phase = LoadPhase.READY, after = null, message = "Не удалось выполнить повторный замер. Попробуйте ещё раз.")
                     measurement = null
                 }
             }
