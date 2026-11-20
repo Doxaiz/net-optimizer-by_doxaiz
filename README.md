@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Android-12%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 12 и новее"></a>
-  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.10-00c6d7?style=flat-square" alt="Релиз 1.0.10"></a>
+  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.11-00c6d7?style=flat-square" alt="Релиз 1.0.11"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-MIT-9d80ff?style=flat-square" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/Цена-бесплатно-21c997?style=flat-square" alt="Бесплатно">
 </p>
@@ -59,7 +59,7 @@
 - TCP-задержка до сайта **не является пингом игрового сервера**. Спидтест расходует до 15 МБ данных плюс служебный трафик.
 - Историческая статистика Android может запаздывать; она не показывает активность приложений в реальном времени.
 - VPN-фильтрация, блокировка трекеров, фоновые сценарии и автоматическое безопасное переключение сети **пока не реализованы**.
-- Проверки выполняются на открытом экране. Часть функций зависит от Android, модема, оператора и разрешений; конкретный Infinix/XOS ещё требует проверки.
+- Проверки выполняются на открытом экране. TCP-замер отменяется при смене сети даже при возвращении к прежней. Часть функций зависит от Android, модема, оператора и разрешений; конкретный Infinix/XOS ещё требует проверки.
 
 ## Данные и конфиденциальность
 

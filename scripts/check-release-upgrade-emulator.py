@@ -21,8 +21,8 @@ tap("Продолжить")
 verify("ГЛАВНАЯ")
 install(sys.argv[2], replace=True)
 info = adb("shell", "dumpsys", "package", package)
-if not re.search(r"versionCode=23\b", info):
-    raise RuntimeError("Updated package is not versionCode 23")
+if not re.search(r"versionCode=24\b", info):
+    raise RuntimeError("Updated package is not versionCode 24")
 start()
 # Onboarding is persisted by the old APK and must not be shown again after updating.
 verify("ГЛАВНАЯ")

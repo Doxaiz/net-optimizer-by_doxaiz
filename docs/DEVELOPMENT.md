@@ -13,7 +13,7 @@ gradle --no-daemon lintRelease
 
 Для подписанной release-сборки настройте вне репозитория переменные `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, затем выполните `gradle --no-daemon assembleRelease`. Не вставляйте фактические значения в Git, сообщения или логи.
 
-Workflow **Build APK** при push и pull request запускает тесты и собирает debug APK как артефакт для разработки. Debug-подпись отличается от release: такой APK не предназначен для публикации и обычно не обновит установленный release. Подписанная сборка запускается вручную через `workflow_dispatch` и ожидает repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` и `ANDROID_KEY_PASSWORD`; при их отсутствии она останавливается. Для проверки конфигурации есть отдельный workflow с одноразовым тестовым ключом: такой APK **не предназначен для публикации**. Workflows тестирования не публикуют релиз автоматически.
+Workflow **Build APK** при push и pull request запускает тесты, проверяет разрешения и отключённые компоненты в самом debug APK (`scripts/check-apk-surface.py`) и сохраняет APK как артефакт для разработки. Debug-подпись отличается от release: такой APK не предназначен для публикации и обычно не обновит установленный release. Подписанная сборка запускается вручную через `workflow_dispatch` и ожидает repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` и `ANDROID_KEY_PASSWORD`; при их отсутствии она останавливается. Для проверки конфигурации есть отдельный workflow с одноразовым тестовым ключом: такой APK **не предназначен для публикации**. Workflows тестирования не публикуют релиз автоматически.
 
 ## Безопасность исходников
 
@@ -28,6 +28,6 @@ python3 scripts/check-sensitive-files.py
 
 ## Проверка установки
 
-На эмуляторах Android 12 и 14 проверены установка и обновление выпущенного APK, первый запуск и основные вкладки. На Android 14 также проверены открытие системных настроек экономии трафика и обновление состояния после возвращения. Подробности и ссылки на конкретные CI-запуски — в [AUDIT.md](../AUDIT.md). Скрипты `scripts/audit-release-emulator.py`, `scripts/check-usability-emulator.py`, `scripts/check-release-upgrade-emulator.py`, `scripts/check-data-saver-emulator.py` и `scripts/check-shizuku-emulator.py` удаляют приложение и его данные; два последних также меняют системную настройку, а проверка Shizuku удаляет и переустанавливает Shizuku. **Запускайте их только на одноразовом эмуляторе**, никогда на личном устройстве.
+На эмуляторах Android 12 и 14 проверены установка и обновление выпущенного APK, первый запуск и основные вкладки. Подробности и ссылки на конкретные CI-запуски — в [AUDIT.md](../AUDIT.md). Скрипты `scripts/*emulator.py` могут удалять приложение и его данные, менять настройки сети и политики; проверка Shizuku также удаляет и переустанавливает Shizuku. **Запускайте их только на одноразовом эмуляторе**, никогда на личном устройстве.
 
 Имя версии и внутренний `versionCode` — разные вещи: для обновления Android требует увеличивать `versionCode`. Проверки на эмуляторе не заменяют проверку на реальном телефоне, в сети оператора и с выбранной версией Shizuku.
