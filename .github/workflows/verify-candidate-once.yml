@@ -24,7 +24,7 @@ jobs:
           gradle-version: '8.7'
       - name: Test and lint
         run: |
-          git diff --quiet 7ec01ab614096f74ce7cf853cd4876ce2bed47bc HEAD -- app build.gradle.kts settings.gradle.kts gradle gradle.properties
+          git diff --quiet 83faf9c3c5da679f33f790b36e90206e32d2fd47 HEAD -- app build.gradle.kts settings.gradle.kts gradle gradle.properties
           gradle --no-daemon --console plain testReleaseUnitTest lintRelease
       - name: Build with previously selected signing identity
         shell: bash
