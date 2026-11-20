@@ -8,11 +8,14 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.TrafficStats
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
+import com.doxaiz.netoptimizer.core.session.SessionNetworkGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -78,6 +81,55 @@ class TrafficMonitor(private val context: Context) {
             delay(2_000)
         }
     }.flowOn(Dispatchers.IO)
+
+    /** No probes or permissions beyond network state: reads device-wide mobile counters only. */
+    internal suspend fun measureMobileLoad(): MobileLoadResult = withContext(Dispatchers.IO) {
+        val initial = CellularNetwork.active(context)
+            ?: return@withContext MobileLoadResult.Failure(MobileLoadFailure.NO_MOBILE)
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+            ?: return@withContext MobileLoadResult.Failure(MobileLoadFailure.NETWORK_CHANGED)
+        val guard = SessionNetworkGuard(initial)
+        val watcher = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { guard.available(network) }
+            override fun onLost(network: Network) { guard.lost(network) }
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                guard.capabilities(network, caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
+            }
+        }
+        try {
+            manager.registerDefaultNetworkCallback(watcher)
+        } catch (_: Exception) {
+            return@withContext MobileLoadResult.Failure(MobileLoadFailure.NETWORK_CHANGED)
+        }
+        try {
+            val samples = ArrayList<MobileCounters>(MobileLoadWindow.INTERVALS + 1)
+            repeat(MobileLoadWindow.INTERVALS + 1) { index ->
+                if (index > 0) delay(MobileLoadWindow.INTERVAL_MS)
+                currentCoroutineContext().ensureActive()
+                if (!guard.valid(CellularNetwork.active(context)))
+                    return@withContext MobileLoadResult.Failure(MobileLoadFailure.NETWORK_CHANGED)
+                val rx = TrafficStats.getMobileRxBytes()
+                val tx = TrafficStats.getMobileTxBytes()
+                val now = SystemClock.elapsedRealtime()
+                if (rx < 0 || tx < 0)
+                    return@withContext MobileLoadResult.Failure(MobileLoadFailure.COUNTERS_UNAVAILABLE)
+                if (!guard.valid(CellularNetwork.active(context)))
+                    return@withContext MobileLoadResult.Failure(MobileLoadFailure.NETWORK_CHANGED)
+                samples.add(MobileCounters(initial.networkHandle, now, rx, tx))
+            }
+            val sample = MobileLoadWindow.result(samples)
+                ?: return@withContext MobileLoadResult.Failure(MobileLoadFailure.INVALID_SAMPLE)
+            if (!guard.valid(CellularNetwork.active(context)))
+                return@withContext MobileLoadResult.Failure(MobileLoadFailure.NETWORK_CHANGED)
+            MobileLoadResult.Success(sample)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            MobileLoadResult.Failure(MobileLoadFailure.COUNTERS_UNAVAILABLE)
+        } finally {
+            try { manager.unregisterNetworkCallback(watcher) } catch (_: Exception) { }
+        }
+    }
 
     /** Historical mobile bytes for a calendar period; Android may report with a delay. */
     suspend fun summary(period: TrafficPeriod): TrafficSummary = withContext(Dispatchers.IO) {

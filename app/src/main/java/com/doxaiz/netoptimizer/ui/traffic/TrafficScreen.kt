@@ -33,6 +33,9 @@ import com.doxaiz.netoptimizer.core.traffic.StopPolicy
 import com.doxaiz.netoptimizer.core.traffic.StopResult
 import com.doxaiz.netoptimizer.core.traffic.StopTarget
 import com.doxaiz.netoptimizer.core.traffic.MobileRate
+import com.doxaiz.netoptimizer.core.traffic.MobileLoadResult
+import com.doxaiz.netoptimizer.core.traffic.MobileLoadSample
+import com.doxaiz.netoptimizer.core.traffic.MobileLoadFailure
 import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummaryStatus
@@ -127,6 +130,11 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
+    var loadResult by remember { mutableStateOf<MobileLoadResult?>(null) }
+    var previousLoad by remember { mutableStateOf<MobileLoadSample?>(null) }
+    var loadMeasuring by remember { mutableStateOf(false) }
+    var loadJob by remember { mutableStateOf<Job?>(null) }
+    var loadSequence by remember { mutableIntStateOf(0) }
     var summary by remember { mutableStateOf<TrafficSummary?>(null) }
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -148,6 +156,11 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                 Lifecycle.Event.ON_START -> { foreground = true; dataSaverStatus = dataSaver.status(); shizukuReady = ShizukuManager.isReady(); optimizer.onStart() }
                 Lifecycle.Event.ON_STOP -> {
                     foreground = false
+                    if (loadMeasuring) {
+                        loadSequence++
+                        loadJob?.cancel(); loadJob = null
+                        loadMeasuring = false; loadResult = null
+                    }
                     optimizer.onStop()
                     pendingStop = null; pendingBatch = false; pendingDataSaver = null; pendingOptimization = false
                     pendingManualApp = null; manualPickerOpen = false
@@ -168,7 +181,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); manualAppJob?.cancel(); optimizationJob?.cancel(); stopJob?.cancel(); optimizer.clear() }
+        onDispose { lifecycle.removeObserver(observer); loadJob?.cancel(); manualAppJob?.cancel(); optimizationJob?.cancel(); stopJob?.cancel(); optimizer.clear() }
     }
     LaunchedEffect(optimizationRequested) {
         if (optimizationRequested) {
@@ -661,9 +674,45 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("Текущая скорость телефона", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("ТЕКУЩАЯ ПЕРЕДАЧА ДАННЫХ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (rate != null) "↓ ${formatRate(rate!!.rxBytesPerSecond)}  ·  ↑ ${formatRate(rate!!.txBytesPerSecond)}" else "Нет данных", style = MaterialTheme.typography.titleMedium, color = if (rate != null) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (details) "Общие счётчики мобильных интерфейсов Android, не скорость отдельных приложений. Первое значение появляется после двух снимков; раздача может учитываться по-разному." else "Общий мобильный трафик телефона, не отдельных приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (loadMeasuring) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        TextButton(onClick = { loadSequence++; loadJob?.cancel(); loadJob = null; loadMeasuring = false; loadResult = null }) { Text("Отменить замер нагрузки") }
+                    } else {
+                        OutlinedButton(onClick = {
+                            val sequence = ++loadSequence
+                            (loadResult as? MobileLoadResult.Success)?.let { previousLoad = it.sample }
+                            loadMeasuring = true; loadResult = null
+                            loadJob = scope.launch {
+                                try {
+                                    val result = monitor.measureMobileLoad()
+                                    if (sequence == loadSequence) loadResult = result
+                                } finally {
+                                    if (sequence == loadSequence) { loadMeasuring = false; loadJob = null }
+                                }
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Измерить нагрузку за 10 секунд") }
+                    }
+                    previousLoad?.let { previous ->
+                        Text("Прошлый: ${previous.durationMs / 1000} с · ↓ ${formatBytes(previous.received)} · ↑ ${formatBytes(previous.sent)}; в среднем ↓ ${formatRate(previous.rxPerSecond)} · ↑ ${formatRate(previous.txPerSecond)}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    when (val result = loadResult) {
+                        is MobileLoadResult.Success -> {
+                            val sample = result.sample
+                            Text("За ${sample.durationMs / 1000} с: ↓ ${formatBytes(sample.received)} · ↑ ${formatBytes(sample.sent)}", style = MaterialTheme.typography.titleSmall)
+                            Text("В среднем: ↓ ${formatRate(sample.rxPerSecond)} · ↑ ${formatRate(sample.txPerSecond)}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Расход всех мобильных интерфейсов, не скорость тарифа или отдельного приложения. Разница замеров не доказывает причину; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        is MobileLoadResult.Failure -> Text(when (result.reason) {
+                            MobileLoadFailure.NO_MOBILE -> "Для замера подключите мобильный интернет."
+                            MobileLoadFailure.COUNTERS_UNAVAILABLE -> "Android не предоставил мобильные счётчики."
+                            MobileLoadFailure.NETWORK_CHANGED -> "Сеть изменилась или её нельзя проверить. Повторите замер."
+                            MobileLoadFailure.INVALID_SAMPLE -> "Замер прерван или счётчики сброшены. Повторите."
+                        }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        null -> Unit
+                    }
                     if (details && history.size >= 2) {
                         TrafficGraph(history)
                         Text("Приём — голубой · отдача — фиолетовый; последние до 30 снимков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
