@@ -899,10 +899,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
 @Composable
 private fun EndpointButton(label: String?, onEdit: () -> Unit, enabled: Boolean = true) {
     Column {
-        Text("Для замера домен будет разрешён через DNS, затем выполнятся TCP-подключения к выбранному адресу. Сервер и DNS-провайдер могут видеть запросы.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = onEdit, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
             Text("Адрес: ${label ?: "не задан"}", maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
+        Text("DNS (для домена) и TCP-запросы: провайдер DNS и целевой сервер могут их видеть.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
