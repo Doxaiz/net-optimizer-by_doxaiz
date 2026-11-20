@@ -3,6 +3,7 @@ package com.doxaiz.netoptimizer.ui.home
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,6 +49,7 @@ private enum class CheckPhase { IDLE, CONNECTING, TCP, DNS, DONE, ERROR, CANCELL
 fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroundSinceMs: Long?, nowMs: Long, onOptimize: () -> Unit, expert: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
     val rawSignal by monitor.state.collectAsState()
     val freshness = SignalFreshness.status(rawSignal.observedAtElapsedMs, rawSignal.modemAtElapsedMs, foregroundSinceMs, maxOf(nowMs, SystemClock.elapsedRealtime()))
     val signal = if (SignalFreshness.canDisplay(freshness)) rawSignal else rawSignal.withoutCellData()
@@ -94,6 +96,13 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 }
                 delay(2_000)
             }
+        }
+    }
+    // Keep progress and the result visible after a user-triggered check on smaller screens.
+    LaunchedEffect(checkPhase) {
+        if (checkPhase == CheckPhase.CONNECTING || checkPhase == CheckPhase.DONE ||
+            checkPhase == CheckPhase.ERROR || checkPhase == CheckPhase.CANCELLED) {
+            listState.animateScrollToItem(2)
         }
     }
     val validSignal = signal.rsrp in -160..-30
@@ -146,7 +155,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
         }
     }
 
-    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(state = listState, modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Text("ГЛАВНАЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
