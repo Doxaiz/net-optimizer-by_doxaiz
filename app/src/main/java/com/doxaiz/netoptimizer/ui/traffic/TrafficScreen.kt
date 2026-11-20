@@ -9,6 +9,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -142,6 +143,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
     var loadResult by remember { mutableStateOf<MobileLoadResult?>(null) }
+    val trafficListState = rememberLazyListState()
+    LaunchedEffect(loadResult) {
+        // Bring the result into view only while the user is still looking at its card.
+        if (loadResult != null && trafficListState.layoutInfo.visibleItemsInfo.any { it.index == 2 }) {
+            trafficListState.animateScrollToItem(2)
+        }
+    }
     var previousLoad by remember { mutableStateOf<MobileLoadSample?>(null) }
     var loadMeasuring by remember { mutableStateOf(false) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
@@ -718,7 +726,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         )
     }
 
-    LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), state = trafficListState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
