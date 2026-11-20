@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Android-12%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 12 и новее"></a>
-  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.11-00c6d7?style=flat-square" alt="Релиз 1.0.11"></a>
+  <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.12-00c6d7?style=flat-square" alt="Релиз 1.0.12"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-MIT-9d80ff?style=flat-square" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/Цена-бесплатно-21c997?style=flat-square" alt="Бесплатно">
 </p>
