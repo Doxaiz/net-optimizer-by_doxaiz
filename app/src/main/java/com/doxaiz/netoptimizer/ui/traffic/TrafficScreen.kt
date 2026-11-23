@@ -806,14 +806,14 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                             val total = apps.fold(0L) { sum, app -> saturatedAdd(sum, app.totalBytes) }
                             Text("Всего по доступным записям: ${formatBytes(total)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                             Text("Включает доступные системные UID и раздачу, если Android их предоставил; статистика может быть неполной.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (apps.any { it.outsideForegroundBytes != null }) {
-                                Text("Сортировать", style = MaterialTheme.typography.labelMedium)
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FilterChip(selected = trafficSort == TrafficSort.TOTAL, onClick = { trafficSort = TrafficSort.TOTAL }, label = { Text("Общий расход") })
-                                    FilterChip(selected = trafficSort == TrafficSort.OUTSIDE_FOREGROUND, onClick = { trafficSort = TrafficSort.OUTSIDE_FOREGROUND }, label = { Text("Условно фон") })
-                                }
-                                Text("Условно фон — расход, не отнесённый Android к foreground. Это не точный фон и не активность сейчас; данные могут запаздывать.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Сортировать за период", style = MaterialTheme.typography.labelMedium)
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(selected = trafficSort == TrafficSort.TOTAL, onClick = { trafficSort = TrafficSort.TOTAL }, label = { Text("Всего") })
+                                FilterChip(selected = trafficSort == TrafficSort.RECEIVED, onClick = { trafficSort = TrafficSort.RECEIVED }, label = { Text("Скачивание ↓") })
+                                FilterChip(selected = trafficSort == TrafficSort.SENT, onClick = { trafficSort = TrafficSort.SENT }, label = { Text("Отдача ↑") })
+                                FilterChip(selected = trafficSort == TrafficSort.OUTSIDE_FOREGROUND, onClick = { trafficSort = TrafficSort.OUTSIDE_FOREGROUND }, label = { Text("Условно фон") })
                             }
+                            Text("Скачивание и отдача — история за период, а не активность сейчас. Условно фон — расход, не отнесённый Android к foreground, не точный фон; данные могут запаздывать.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     when {
@@ -863,7 +863,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(app.label, style = MaterialTheme.typography.titleSmall)
-                        Text("За период: ${formatBytes(app.totalBytes)}", color = MaterialTheme.colorScheme.primary)
+                        Text("За период: ${formatBytes(app.totalBytes)} · ↓ ${formatBytes(app.rxBytes)} · ↑ ${formatBytes(app.txBytes)}", color = MaterialTheme.colorScheme.primary)
                         Text(outsideForegroundText(app), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (app.packageNames.size > 1) Text("Общие данные нескольких приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (!isProtected(app) && app.packageNames.size == 1) {
