@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.doxaiz.netoptimizer"
     compileSdk = 34
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.doxaiz.netoptimizer"
@@ -17,6 +18,7 @@ android {
         // The user-facing release numbering can restart independently of this monotonic value.
         versionCode = 25
         versionName = "1.0.12"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -44,7 +46,29 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+    packaging {
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+        // Compressed libraries are extracted at install, avoiding 4 KiB APK alignment on 16 KiB devices.
+        jniLibs.useLegacyPackaging = true
+    }
+}
+
+// Android still owns UI/network APIs; the bounded, pure calculations are built for all four ABIs.
+// Explicit opt-out is for development/fallback verification, not the normal release build.
+val nativeRust = providers.gradleProperty("nativeRust").map { it.toBooleanStrict() }.orElse(true)
+if (nativeRust.get()) {
+    val output = layout.buildDirectory.dir("generated/rust/jniLibs")
+    val buildRustCore = tasks.register<Exec>("buildRustCore") {
+        workingDir(rootProject.projectDir)
+        commandLine("bash", rootProject.file("scripts/build-rust-android.sh"), output.get().asFile.absolutePath)
+        environment("ANDROID_HOME", android.sdkDirectory.absolutePath)
+        inputs.files(fileTree(rootProject.file("native/netoptimizer-core")) { exclude("target/**") })
+        inputs.file(rootProject.file("rust-toolchain.toml"))
+        inputs.file(rootProject.file("scripts/build-rust-android.sh"))
+        outputs.dir(output)
+    }
+    android.sourceSets.getByName("main").jniLibs.srcDir(output)
+    tasks.named("preBuild").configure { dependsOn(buildRustCore) }
 }
 
 dependencies {
@@ -65,5 +89,7 @@ dependencies {
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
     debugImplementation(libs.compose.ui.tooling)
 }

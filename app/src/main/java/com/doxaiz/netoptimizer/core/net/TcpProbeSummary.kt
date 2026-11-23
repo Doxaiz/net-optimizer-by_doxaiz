@@ -12,7 +12,10 @@ data class TcpProbeSummary(
     val failedPercent: Int
 ) {
     companion object {
-        fun from(samples: List<Int>): TcpProbeSummary {
+        fun from(samples: List<Int>): TcpProbeSummary = NativeMeasurements.tcp(samples) ?: fromKotlin(samples)
+
+        /** Reference implementation for JVM tests and unavailable native libraries. */
+        internal fun fromKotlin(samples: List<Int>): TcpProbeSummary {
             val successful = samples.filter { it >= 0 }
             val average = if (successful.isEmpty()) -1 else successful.average().roundToInt()
             val jitter = if (successful.size < 2) -1 else

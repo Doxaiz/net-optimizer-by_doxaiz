@@ -1,0 +1,51 @@
+name: Rust JNI verification
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [31, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - uses: ./.github/actions/setup-rust-android
+      - name: Test Rust calculations on the host
+        run: cargo test --locked --manifest-path native/netoptimizer-core/Cargo.toml
+      - name: Build APK and Android instrumentation tests
+        run: |
+          gradle --no-daemon --console plain assembleDebug assembleDebugAndroidTest
+          python3 scripts/check-native-apk.py app/build/outputs/apk/debug/app-debug.apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run actual Rust JNI against Kotlin reference
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r -e class com.doxaiz.netoptimizer.core.net.NativeMeasurementsInstrumentedTest com.doxaiz.netoptimizer.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$RUNNER_TEMP/rust-tests.txt"
+            if ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$RUNNER_TEMP/rust-tests.txt"; then
+              echo '::error::Native Android instrumentation tests failed or did not run.'
+              exit 1
+            fi

@@ -20,6 +20,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+      - uses: ./.github/actions/setup-rust-android
       - name: Build and verify with a disposable test key
         run: |
           set -euo pipefail
@@ -35,6 +36,7 @@ jobs:
             -alias "$ANDROID_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 1 \
             -dname 'CN=Disposable signing configuration check'
           gradle --no-daemon --console plain assembleRelease
+          python3 scripts/check-native-apk.py app/build/outputs/apk/release/app-release.apk
           apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           test -n "$apksigner"
           "$apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk

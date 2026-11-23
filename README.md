@@ -69,7 +69,11 @@
 
 ## Разработка
 
-Проект написан на Kotlin и Jetpack Compose. Для сборки нужны **JDK 17, Gradle 8.7 и Android SDK 34**. Подписанный release требует настройки подписи вне исходников. Unit-тесты и lint выполняются без неё.
+Интерфейс и работа с Android написаны на Kotlin и Jetpack Compose. Расчёт сводки TCP и медианы замеров вынесен в Rust; JNI связывает его с приложением. Это не гарантирует ускорение приложения или сети. При недоступности библиотеки используется прежний расчёт на Kotlin.
+
+Для обычной сборки на Linux или macOS нужны **JDK 17, Gradle 8.7, Android SDK 34, NDK 27.2.12479018 и rustup**. Версия Rust и четыре Android-цели закреплены в `rust-toolchain.toml`; rustup устанавливает их при первом запуске Cargo. NDK устанавливается через Android SDK Manager. `gradle testReleaseUnitTest assembleDebug` собирает нативную библиотеку для arm64-v8a, armeabi-v7a, x86 и x86_64. Для разработки без Rust доступен явный резервный вариант `gradle -PnativeRust=false testReleaseUnitTest assembleDebug`; он не проверяет нативную интеграцию. Подписанный release требует настройки подписи вне исходников. На физическом устройстве сборку Rust необходимо проверить отдельно.
+
+Для самостоятельной проверки: `cargo test --locked --manifest-path native/netoptimizer-core/Cargo.toml` и `python3 scripts/check-native-apk.py app/build/outputs/apk/debug/app-debug.apk`. Сведения об [Android-целях Rust](https://doc.rust-lang.org/rustc/platform-support/android.html), [JNI](https://developer.android.com/ndk/guides/jni-tips) и [16-КиБ страницах](https://developer.android.com/guide/practices/page-sizes).
 
 - [Сборка и проверки](docs/DEVELOPMENT.md)
 - [Аудит и известные ограничения](AUDIT.md)

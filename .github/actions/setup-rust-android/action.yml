@@ -1,0 +1,15 @@
+name: Prepare Rust and Android NDK
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        # rust-toolchain.toml pins the compiler, components and all four Android targets.
+        rustup show active-toolchain
+        cargo --version
+        ndk="$ANDROID_HOME/ndk/27.2.12479018"
+        if [[ ! -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ]]; then
+          sdkmanager 'ndk;27.2.12479018'
+        fi
+        test -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"

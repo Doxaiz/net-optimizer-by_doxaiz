@@ -26,6 +26,7 @@ internal object LoadedLatencySummary {
 
     private fun median(samples: List<Int>): Int? {
         if (samples.size < MIN_SUCCESS) return null
+        NativeMeasurements.median(samples, MIN_SUCCESS)?.let { return it.takeIf { value -> value >= 0 } }
         val sorted = samples.sorted()
         val middle = sorted.size / 2
         return if (sorted.size % 2 == 1) sorted[middle] else

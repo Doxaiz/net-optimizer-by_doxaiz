@@ -1,5 +1,7 @@
 package com.doxaiz.netoptimizer.core.dns
 
+import com.doxaiz.netoptimizer.core.net.NativeMeasurements
+
 /** Five completed attempts; only validated responses contribute to the median. */
 internal data class DnsSampleSummary(val answered: Int, val medianMs: Int?)
 
@@ -9,6 +11,9 @@ internal object DnsSamples {
 
     fun summarize(successfulMs: List<Int>): DnsSampleSummary {
         require(successfulMs.size <= ATTEMPTS && successfulMs.all { it >= 0 })
+        NativeMeasurements.median(successfulMs, MIN_ANSWERS)?.let {
+            return DnsSampleSummary(successfulMs.size, it.takeIf { value -> value >= 0 })
+        }
         val sorted = successfulMs.sorted()
         val middle = sorted.size / 2
         val median = when {

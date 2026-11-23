@@ -1,0 +1,7 @@
+NETOPTIMIZER_1 {
+  global:
+    Java_com_doxaiz_netoptimizer_core_net_NativeMeasurements_tcpNative;
+    Java_com_doxaiz_netoptimizer_core_net_NativeMeasurements_medianNative;
+  local:
+    *;
+};

@@ -2,6 +2,7 @@
 .gradle/
 build/
 **/build/
+**/target/
 local.properties
 .idea/
 *.iml
