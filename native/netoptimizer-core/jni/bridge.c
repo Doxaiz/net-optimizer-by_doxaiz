@@ -6,6 +6,7 @@ extern int32_t netopt_tcp_summary(const int32_t *input, uint32_t len, int32_t *o
 extern int32_t netopt_median(const int32_t *input, uint32_t len, uint32_t minimum);
 
 #define MAX_SAMPLES 4096
+_Static_assert(sizeof(jint) == sizeof(int32_t), "JNI integers must be 32-bit");
 
 JNIEXPORT jintArray JNICALL
 Java_com_doxaiz_netoptimizer_core_net_NativeMeasurements_tcpNative(

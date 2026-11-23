@@ -43,6 +43,14 @@ while read -r abi target compiler; do
     -Wl,--version-script="$exports" -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 \
     -ldl -llog -lm -o "$tmp"
   "$bin/llvm-strip" --strip-unneeded "$tmp"
+  symbols=$("$bin/llvm-nm" -D --defined-only "$tmp")
+  for symbol in Java_com_doxaiz_netoptimizer_core_net_NativeMeasurements_tcpNative \
+                Java_com_doxaiz_netoptimizer_core_net_NativeMeasurements_medianNative; do
+    if [[ "$symbols" != *"$symbol"* ]]; then
+      echo "Missing JNI export $symbol for $abi" >&2
+      exit 1
+    fi
+  done
   mv "$tmp" "$out/$abi/libnetoptimizer_core.so"
 done <<'ABIS'
 arm64-v8a aarch64-linux-android aarch64-linux-android31-clang

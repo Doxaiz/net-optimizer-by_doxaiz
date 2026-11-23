@@ -37,7 +37,10 @@ def check_apk(path):
     errors = []
     with zipfile.ZipFile(path) as apk:
         expected = {f"lib/{abi}/{LIBRARY}" for abi in ABIS}
-        actual = {name for name in apk.namelist() if name.startswith("lib/") and name.endswith("/" + LIBRARY)}
+        matching = [name for name in apk.namelist() if name.startswith("lib/") and name.endswith("/" + LIBRARY)]
+        actual = set(matching)
+        if len(matching) != len(actual):
+            errors.append("duplicate native library entries")
         if expected != actual:
             errors.append(f"native ABI set mismatch: expected {sorted(expected)}, got {sorted(actual)}")
         for abi, (elf_class, machine) in ABIS.items():

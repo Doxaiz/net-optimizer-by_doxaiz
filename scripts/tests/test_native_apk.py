@@ -1,6 +1,9 @@
 import importlib.util
 import struct
+import tempfile
 import unittest
+import warnings
+import zipfile
 from pathlib import Path
 
 path = Path(__file__).resolve().parents[1] / "check-native-apk.py"
@@ -29,6 +32,21 @@ class NativeApkTest(unittest.TestCase):
         for abi, (bits, machine) in native_apk.ABIS.items():
             with self.subTest(abi=abi):
                 self.assertEqual([], native_apk.elf_errors(fake_elf(bits, machine), bits, machine))
+
+    def test_apk_requires_all_abis_compression_and_no_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            apk = Path(tmp) / 'test.apk'
+            with zipfile.ZipFile(apk, 'w', zipfile.ZIP_DEFLATED) as z:
+                for abi, (bits, machine) in native_apk.ABIS.items():
+                    z.writestr(f'lib/{abi}/{native_apk.LIBRARY}', fake_elf(bits, machine))
+            self.assertEqual([], native_apk.check_apk(apk))
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', UserWarning)
+                with zipfile.ZipFile(apk, 'a', zipfile.ZIP_STORED) as z:
+                    z.writestr(f'lib/x86/{native_apk.LIBRARY}', fake_elf(1, 3))
+            errors = native_apk.check_apk(apk)
+            self.assertIn('duplicate native library entries', errors)
+            self.assertIn('x86: expected compressed native library', errors)
 
     def test_bad_machine_alignment_and_truncation(self):
         self.assertTrue(native_apk.elf_errors(fake_elf(2, 62), 2, 183))
