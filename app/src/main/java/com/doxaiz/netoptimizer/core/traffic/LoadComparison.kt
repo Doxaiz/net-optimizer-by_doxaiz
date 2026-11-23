@@ -7,7 +7,9 @@ internal data class LoadSample(
     val averageMs: Int,
     val jitterMs: Int,
     val failedPercent: Int,
-    val traffic: ProbeTraffic? = null
+    val traffic: ProbeTraffic? = null,
+    val medianMs: Int? = null,
+    val maximumMs: Int? = null
 )
 
 internal object LoadComparison {

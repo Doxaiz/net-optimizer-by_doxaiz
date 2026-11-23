@@ -24,7 +24,10 @@ data class PingResult(
     val ok: Boolean,
     val attemptsMade: Int,
     val successfulAttempts: Int,
-    val status: PingStatus
+    val status: PingStatus,
+    // Only published for a completed series with at least three successes.
+    val medianMs: Int? = null,
+    val maximumMs: Int? = null
 )
 
 object PingCatalog {

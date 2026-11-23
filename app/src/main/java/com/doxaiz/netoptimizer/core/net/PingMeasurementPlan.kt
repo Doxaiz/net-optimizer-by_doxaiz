@@ -36,12 +36,13 @@ internal object PingMeasurementPlan {
 
     fun result(target: PingTarget, samples: List<Int>, status: PingStatus): PingResult {
         val summary = TcpProbeSummary.from(samples)
+        val distribution = if (status == PingStatus.COMPLETED) TcpLatencyDistributions.from(samples) else null
         // Never publish measurements from an interrupted or untracked test as complete.
         return PingResult(target,
             if (status == PingStatus.COMPLETED) summary.averageMs else -1,
             if (status == PingStatus.COMPLETED) summary.jitterMs else -1,
             if (status == PingStatus.COMPLETED) summary.failedPercent else -1,
             status == PingStatus.COMPLETED && summary.averageMs in 0..150 && summary.failedPercent == 0,
-            summary.attempts, summary.successes, status)
+            summary.attempts, summary.successes, status, distribution?.medianMs, distribution?.maximumMs)
     }
 }

@@ -224,4 +224,4 @@ internal class LoadOptimizationController(private val context: Context, private 
 }
 
 private fun com.doxaiz.netoptimizer.core.net.PingResult.asLoadSample(traffic: ProbeTraffic?) =
-    LoadSample(attemptsMade, successfulAttempts, avgMs, jitterMs, lossPercent, traffic)
+    LoadSample(attemptsMade, successfulAttempts, avgMs, jitterMs, lossPercent, traffic, medianMs, maximumMs)

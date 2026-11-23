@@ -89,6 +89,9 @@ class NativeMeasurementsInstrumentedTest {
     @Test fun actualConsumersUseSameConventions() {
         assertEquals(20, DnsSamples.summarize(listOf(10, 20, 30)).medianMs)
         assertNull(DnsSamples.summarize(listOf(10, 20)).medianMs)
+        assertEquals(20, NativeMeasurements.median(listOf(10, 20, 500), TcpLatencyDistributions.MIN_SUCCESSES))
+        assertEquals(TcpLatencyDistribution(20, 500), TcpLatencyDistributions.from(listOf(10, -1, 20, 500)))
+        assertNull(TcpLatencyDistributions.from(listOf(10, -1, 20)))
         val loaded = LoadedLatencySummary.from(listOf(10, -1, 20, 30), listOf(20, 40, 60, 80))
         assertEquals(20, loaded.idleMedianMs)
         assertEquals(50, loaded.loadedMedianMs)

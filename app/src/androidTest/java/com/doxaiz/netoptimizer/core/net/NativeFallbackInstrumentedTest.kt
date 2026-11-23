@@ -17,5 +17,7 @@ class NativeFallbackInstrumentedTest {
         assertEquals(TcpProbeSummary.fromKotlin(samples), TcpProbeSummary.from(samples))
         assertEquals(20, DnsSamples.summarize(listOf(10, 20, 30)).medianMs)
         assertEquals(20, LoadedLatencySummary.from(listOf(10, 20, 30), emptyList()).idleMedianMs)
+        assertEquals(TcpLatencyDistribution(20, 500), TcpLatencyDistributions.from(listOf(10, -1, 20, 500)))
+        assertNull(TcpLatencyDistributions.from(listOf(10, -1, 20)))
     }
 }

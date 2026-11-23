@@ -134,7 +134,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                     DnsBenchmark(context).benchmarkAll().firstOrNull { it.ms >= 0 }
                 } else null
                 if (CellularNetwork.active(context) != network) {
-                    checkResult = result.copy(status = com.doxaiz.netoptimizer.core.net.PingStatus.NETWORK_CHANGED, avgMs = -1, jitterMs = -1, lossPercent = -1, ok = false)
+                    checkResult = result.copy(status = com.doxaiz.netoptimizer.core.net.PingStatus.NETWORK_CHANGED, avgMs = -1, jitterMs = -1, lossPercent = -1, ok = false, medianMs = null, maximumMs = null)
                 } else {
                     measuredNetwork = network
                     checkResult = result

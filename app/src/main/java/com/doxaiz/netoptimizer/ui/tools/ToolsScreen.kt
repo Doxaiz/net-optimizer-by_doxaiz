@@ -793,7 +793,7 @@ private fun probeShortDescription(result: PingResult): String = when (result.sta
     PingStatus.RESOLUTION_FAILED -> "Адрес не найден"
     PingStatus.COMPLETED -> {
         val failed = result.attemptsMade - result.successfulAttempts
-        val jitter = if (result.jitterMs >= 0) "±${result.jitterMs} мс · " else ""
+        val jitter = if (result.jitterMs >= 0) "разброс ${result.jitterMs} мс · " else ""
         "$jitter$failed/${result.attemptsMade} неудач"
     }
 }
@@ -814,8 +814,14 @@ private fun PingDetails(result: PingResult) {
                 result.avgMs <= 100 -> MaterialTheme.colorScheme.primary
                 else -> MaterialTheme.colorScheme.error
             }
-            Text(if (result.avgMs >= 0) "TCP-задержка: ${result.avgMs} мс" else "Подключиться не удалось", style = MaterialTheme.typography.titleMedium, color = latencyColor)
-            Text(if (result.jitterMs >= 0) "Джиттер: ${result.jitterMs} мс · разброс между успешными попытками" else "Джиттер: недостаточно успешных попыток", style = MaterialTheme.typography.bodySmall)
+            Text(if (result.avgMs >= 0) "Средняя TCP-задержка: ${result.avgMs} мс" else "Подключиться не удалось", style = MaterialTheme.typography.titleMedium, color = latencyColor)
+            if (result.medianMs != null && result.maximumMs != null) {
+                Text("Медиана: ${result.medianMs} мс · максимум успешных: ${result.maximumMs} мс", style = MaterialTheme.typography.bodySmall)
+                Text("Только успешные TCP-подключения в короткой серии; максимум не учитывает неудачи и не является пингом игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text("Медиана и максимум: нужно не менее 3 успешных подключений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(if (result.jitterMs >= 0) "Средняя разница соседних успешных подключений: ${result.jitterMs} мс" else "Разница подключений: недостаточно успешных попыток", style = MaterialTheme.typography.bodySmall)
             Text("Неудачные подключения: $failed из ${result.attemptsMade} (${result.lossPercent}%). Это не потери пакетов.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (failed > 0) Text("Проверьте адрес и открытый TCP-порт: отказ может быть связан с сервером, а не качеством сети.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

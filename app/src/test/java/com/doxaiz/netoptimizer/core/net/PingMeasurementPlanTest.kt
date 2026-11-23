@@ -18,6 +18,8 @@ class PingMeasurementPlanTest {
         assertEquals(30, result.avgMs)
         assertEquals(3, result.attemptsMade)
         assertEquals(2, result.successfulAttempts)
+        assertNull(result.medianMs)
+        assertNull(result.maximumMs)
         assertEquals(listOf(1, 2, 3), progress)
     }
 
@@ -49,6 +51,20 @@ class PingMeasurementPlanTest {
         assertEquals(-1, result.jitterMs)
         assertEquals(-1, result.lossPercent)
         assertFalse(result.ok)
+    }
+
+    @Test fun networkChangeAfterSeveralSuccessesSuppressesDistribution() = runBlocking {
+        val guard = SessionNetworkGuard("mobile")
+        var connects = 0
+        val result = PingMeasurementPlan.run(target, 4, { guard.valid("mobile") }, { true }, { "address" }, {
+            connects++
+            if (connects == 4) { guard.lost("mobile"); guard.available("mobile") }
+            10 * connects
+        })
+        assertEquals(PingStatus.NETWORK_CHANGED, result.status)
+        assertEquals(4, result.successfulAttempts)
+        assertNull(result.medianMs)
+        assertNull(result.maximumMs)
     }
 
     @Test fun batteryFailureAfterResolutionIsNotReportedAsDnsFailure() = runBlocking {

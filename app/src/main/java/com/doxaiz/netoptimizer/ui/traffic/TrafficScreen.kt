@@ -955,10 +955,12 @@ private fun LoadOptimizationCard(
             state.resolvedEndpoint?.takeIf { it != state.endpoint }?.let { Text("Подключение к IP: $it", style = MaterialTheme.typography.bodySmall) }
             state.before?.let {
                 Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium)
+                tcpDistributionText(it)?.let { text -> Text(text, style = MaterialTheme.typography.bodySmall) }
                 Text("Передача во время серии до: ${probeTrafficText(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             state.after?.let { after ->
                 Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)
+                tcpDistributionText(after)?.let { text -> Text(text, style = MaterialTheme.typography.bodySmall) }
                 Text("Передача во время серии после: ${probeTrafficText(after)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 state.before?.let { before ->
                     LoadComparison.delta(before, after)?.let { delta ->
@@ -976,7 +978,7 @@ private fun LoadOptimizationCard(
                 }
                 Text("Это разница двух замеров, причина изменения неизвестна.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (state.before != null) Text("Средняя передача всех мобильных интерфейсов между снимками счётчиков вокруг серии TCP, включая трафик самого теста. Короткие серии менее секунды и недоступные счётчики не показываются. Это не нагрузка отдельного приложения и не доказательство причины задержки; данные Android и учёт раздачи могут запаздывать или отличаться.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.before != null) Text("Медиана и максимум относятся только к успешным подключениям короткой серии; неудачи показаны отдельно. Это не пинг игры. Средняя передача — по всем мобильным интерфейсам между снимками счётчиков вокруг серии TCP, включая трафик самого теста. Серии менее секунды и недоступные счётчики не показываются. Это не нагрузка отдельного приложения и не доказательство причины задержки; данные Android и учёт раздачи могут запаздывать или отличаться.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!optimizationRunning && details && state.message.isNotEmpty())
                 Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!optimizationRunning && details) {
@@ -1019,7 +1021,11 @@ private fun LoadOptimizationCard(
 }
 
 private fun loadSampleText(sample: LoadSample): String =
-    "${sample.averageMs} мс · разброс ${sample.jitterMs} мс · ${sample.successes}/${sample.attempts} успешных"
+    "средняя ${sample.averageMs} мс · средняя разница ${sample.jitterMs} мс · ${sample.successes}/${sample.attempts} успешных"
+
+private fun tcpDistributionText(sample: LoadSample): String? =
+    if (sample.medianMs != null && sample.maximumMs != null)
+        "Медиана: ${sample.medianMs} мс · максимум успешных: ${sample.maximumMs} мс" else null
 
 private fun probeTrafficText(sample: LoadSample): String = sample.traffic?.let {
     "↓ ${formatRate(it.rxPerSecond)} · ↑ ${formatRate(it.txPerSecond)} за ${"%.1f".format(it.durationMs / 1000.0)} с"
