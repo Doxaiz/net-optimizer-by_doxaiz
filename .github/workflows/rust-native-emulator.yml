@@ -51,7 +51,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           disable-animations: true
-          script: bash scripts/run-rust-instrumentation.sh com.doxaiz.netoptimizer.core.net.NativeMeasurementsInstrumentedTest,com.doxaiz.netoptimizer.core.traffic.TrafficRankingInstrumentedTest ${{ matrix.page_size }}
+          script: bash scripts/run-rust-instrumentation.sh com.doxaiz.netoptimizer.core.net.NativeMeasurementsInstrumentedTest ${{ matrix.page_size }} && bash scripts/run-rust-instrumentation.sh com.doxaiz.netoptimizer.core.traffic.TrafficRankingInstrumentedTest ${{ matrix.page_size }}
 
   fallback:
     runs-on: ubuntu-latest
