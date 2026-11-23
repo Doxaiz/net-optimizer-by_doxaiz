@@ -31,13 +31,25 @@ fn tcp_summary(samples: &[i32]) -> [i32; 5] {
 
 /// The median is defined only when the specified number of nonnegative samples exists.
 fn median(samples: &[i32], min_success: usize) -> Option<i32> {
-    let mut values: Vec<i32> = samples.iter().copied().filter(|v| *v >= 0).collect();
-    if values.len() < min_success || values.is_empty() {
+    if samples.len() > MAX_SAMPLES {
         return None;
     }
+    // Bounded stack storage avoids a heap allocation while JNI holds the input array.
+    let mut storage = [0i32; MAX_SAMPLES];
+    let mut count = 0;
+    for &value in samples {
+        if value >= 0 {
+            storage[count] = value;
+            count += 1;
+        }
+    }
+    if count < min_success || count == 0 {
+        return None;
+    }
+    let values = &mut storage[..count];
     values.sort_unstable();
-    let middle = values.len() / 2;
-    Some(if values.len() % 2 == 1 {
+    let middle = count / 2;
+    Some(if count % 2 == 1 {
         values[middle]
     } else {
         ((i64::from(values[middle - 1]) + i64::from(values[middle])) / 2) as i32

@@ -4,9 +4,10 @@ set -euo pipefail
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 log="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/netoptimizer-rust-instrumentation.log"
+test_class=${1:-com.doxaiz.netoptimizer.core.net.NativeMeasurementsInstrumentedTest}
 status=0
 adb shell am instrument -w -r -e class \
-  com.doxaiz.netoptimizer.core.net.NativeMeasurementsInstrumentedTest \
+  "$test_class" \
   com.doxaiz.netoptimizer.test/androidx.test.runner.AndroidJUnitRunner > "$log" 2>&1 || status=$?
 tr -d '\r' < "$log" > "$log.clean"
 cat "$log.clean"

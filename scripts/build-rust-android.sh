@@ -14,8 +14,8 @@ case "$(uname -s)" in
   *) echo 'Rust Android build currently supports Linux and macOS hosts.' >&2; exit 1 ;;
 esac
 bin="$ndk/toolchains/llvm/prebuilt/$host/bin"
-if [[ ! -x "$bin/clang" ]]; then
-  echo "Android NDK 27.2.12479018 not found: $ndk" >&2
+if [[ ! -x "$bin/clang" ]] || ! grep -Eq '^Pkg\.Revision[[:space:]]*=[[:space:]]*27\.2\.12479018[[:space:]]*$' "$ndk/source.properties"; then
+  echo "Android NDK 27.2.12479018 not found or version does not match: $ndk" >&2
   exit 1
 fi
 export CARGO_TARGET_DIR="$root/build/rust-target"
