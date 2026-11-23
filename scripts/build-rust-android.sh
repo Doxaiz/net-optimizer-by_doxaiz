@@ -7,7 +7,14 @@ if [[ $# != 1 ]]; then
 fi
 root=$(cd "$(dirname "$0")/.." && pwd)
 out=$1
-ndk=${ANDROID_NDK_HOME:-${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/ndk/27.2.12479018}
+sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
+# Hosted runners may export ANDROID_NDK_HOME for a different revision. Prefer
+# the pinned SDK installation; only use the override when that is absent.
+if [[ -n "$sdk" && -d "$sdk/ndk/27.2.12479018" ]]; then
+  ndk="$sdk/ndk/27.2.12479018"
+else
+  ndk=${ANDROID_NDK_HOME:-"$sdk/ndk/27.2.12479018"}
+fi
 case "$(uname -s)" in
   Linux) host=linux-x86_64 ;;
   Darwin) host=darwin-x86_64 ;;
