@@ -40,12 +40,4 @@ jobs:
           api-level: ${{ matrix.api }}
           arch: x86_64
           disable-animations: true
-          script: |
-            set -euo pipefail
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -r -e class com.doxaiz.netoptimizer.core.net.NativeMeasurementsInstrumentedTest com.doxaiz.netoptimizer.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$RUNNER_TEMP/rust-tests.txt"
-            if ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$RUNNER_TEMP/rust-tests.txt"; then
-              echo '::error::Native Android instrumentation tests failed or did not run.'
-              exit 1
-            fi
+          script: bash scripts/run-rust-instrumentation.sh
