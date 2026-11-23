@@ -6,7 +6,10 @@ data class SpeedResult(
     val uploadMbps: Double?,
     val status: SpeedStatus,
     val downloadLatency: LoadedLatency? = null,
-    val uploadLatency: LoadedLatency? = null
+    val uploadLatency: LoadedLatency? = null,
+    // Local, ephemeral metadata; never written to history or sent to a server.
+    val networkHandle: Long? = null,
+    val completedAtElapsedMs: Long? = null
 )
 enum class SpeedStatus { COMPLETED, NO_CELLULAR, NETWORK_CHANGED, LOW_BATTERY }
 enum class SpeedDirection { DOWNLOAD, UPLOAD }

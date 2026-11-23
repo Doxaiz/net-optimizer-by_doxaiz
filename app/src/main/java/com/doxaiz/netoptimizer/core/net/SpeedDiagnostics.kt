@@ -5,7 +5,23 @@ enum class SpeedHint { INCOMPLETE, SLOW_DOWNLOAD, SLOW_UPLOAD, HIGH_IDLE_TCP, LO
 
 data class SpeedDifference(val downloadMbps: Double?, val uploadMbps: Double?)
 
+enum class SpeedComparisonStatus { READY, INCOMPLETE, MISSING_METADATA, DIFFERENT_NETWORK, EXPIRED, INVALID_TIME }
+
 object SpeedDiagnostics {
+    const val COMPARISON_WINDOW_MS = 10 * 60_000L
+
+    /** Same handle at test completion is necessary but cannot prove uninterrupted connectivity between tests. */
+    fun comparisonStatus(first: SpeedResult, second: SpeedResult, nowElapsedMs: Long): SpeedComparisonStatus {
+        if (first.status != SpeedStatus.COMPLETED || second.status != SpeedStatus.COMPLETED) return SpeedComparisonStatus.INCOMPLETE
+        val firstNetwork = first.networkHandle ?: return SpeedComparisonStatus.MISSING_METADATA
+        val secondNetwork = second.networkHandle ?: return SpeedComparisonStatus.MISSING_METADATA
+        val firstTime = first.completedAtElapsedMs ?: return SpeedComparisonStatus.MISSING_METADATA
+        val secondTime = second.completedAtElapsedMs ?: return SpeedComparisonStatus.MISSING_METADATA
+        if (firstTime < 0 || secondTime < firstTime || nowElapsedMs < secondTime) return SpeedComparisonStatus.INVALID_TIME
+        if (firstNetwork != secondNetwork) return SpeedComparisonStatus.DIFFERENT_NETWORK
+        if (nowElapsedMs - firstTime >= COMPARISON_WINDOW_MS) return SpeedComparisonStatus.EXPIRED
+        return SpeedComparisonStatus.READY
+    }
     private fun validSpeed(value: Double?): Double? = value?.takeIf { it.isFinite() && it > 0.0 }
 
     fun hints(result: SpeedResult): List<SpeedHint> {
@@ -30,9 +46,9 @@ object SpeedDiagnostics {
         return hints
     }
 
-    /** Only complete tests can be compared. Missing directions stay missing, never zero. */
-    fun difference(first: SpeedResult, second: SpeedResult): SpeedDifference? {
-        if (first.status != SpeedStatus.COMPLETED || second.status != SpeedStatus.COMPLETED) return null
+    /** Missing directions stay missing, never zero. Incompatible tests are never compared. */
+    fun difference(first: SpeedResult, second: SpeedResult, nowElapsedMs: Long): SpeedDifference? {
+        if (comparisonStatus(first, second, nowElapsedMs) != SpeedComparisonStatus.READY) return null
         val aDown = validSpeed(first.downloadMbps)
         val bDown = validSpeed(second.downloadMbps)
         val aUp = validSpeed(first.uploadMbps)

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Network
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.net.HttpURLConnection
@@ -75,7 +76,9 @@ class SpeedTester(private val context: Context) {
                 }
                 val completed = if (result.status == SpeedStatus.COMPLETED) result.copy(
                     downloadLatency = downloadLatency.get().takeIf { result.downloadMbps != null },
-                    uploadLatency = uploadLatency.get().takeIf { result.uploadMbps != null }
+                    uploadLatency = uploadLatency.get().takeIf { result.uploadMbps != null },
+                    networkHandle = network?.networkHandle,
+                    completedAtElapsedMs = SystemClock.elapsedRealtime()
                 ) else result
                 if (continuation.isActive) continuation.resume(completed)
             } catch (e: CancellationException) {

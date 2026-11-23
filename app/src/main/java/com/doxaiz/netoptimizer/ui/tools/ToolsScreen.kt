@@ -63,6 +63,7 @@ import com.doxaiz.netoptimizer.core.net.SpeedTester
 import com.doxaiz.netoptimizer.core.net.SpeedStatus
 import com.doxaiz.netoptimizer.core.net.BatteryHealth
 import com.doxaiz.netoptimizer.core.net.SpeedDiagnostics
+import com.doxaiz.netoptimizer.core.net.SpeedComparisonStatus
 import com.doxaiz.netoptimizer.core.net.SpeedHint
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
@@ -118,6 +119,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     var speedError by remember { mutableStateOf(false) }
     var speedCancelled by remember { mutableStateOf(false) }
     var speedJob by remember { mutableStateOf<Job?>(null) }
+    var speedComparisonClock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
 
     val bench = remember { DnsBenchmark(context) }
     val keepAliveEngine = remember { KeepAliveEngine(context.applicationContext) }
@@ -136,6 +138,17 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     val speedTester = remember { SpeedTester(context.applicationContext) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var foreground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    LaunchedEffect(previousSpeed, speed, foreground) {
+        speedComparisonClock = SystemClock.elapsedRealtime()
+        val firstTime = previousSpeed?.completedAtElapsedMs
+        if (foreground && firstTime != null && firstTime >= 0 && speedComparisonClock >= firstTime) {
+            val age = speedComparisonClock - firstTime
+            if (age < SpeedDiagnostics.COMPARISON_WINDOW_MS) {
+                delay(SpeedDiagnostics.COMPARISON_WINDOW_MS - age)
+                speedComparisonClock = SystemClock.elapsedRealtime()
+            }
+        }
+    }
     var signalHistory by remember { mutableStateOf<List<SignalObservation>>(emptyList()) }
     var signalClock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val freshness = SignalFreshness.status(rawSignal.observedAtElapsedMs, rawSignal.modemAtElapsedMs, foregroundSinceMs, maxOf(nowMs, signalClock, SystemClock.elapsedRealtime()))
@@ -423,7 +436,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                         val before = previousSpeed
                         val after = speed
                         if (details && before != null && after != null) {
-                            SpeedComparison(before, after, onClear = { previousSpeed = null })
+                            SpeedComparison(before, after, maxOf(speedComparisonClock, SystemClock.elapsedRealtime()), onClear = { previousSpeed = null })
                         }
                     }
                 }
@@ -590,10 +603,11 @@ private fun SpeedHints(result: SpeedResult) {
 }
 
 @Composable
-private fun SpeedComparison(first: SpeedResult, second: SpeedResult, onClear: () -> Unit) {
-    val delta = SpeedDiagnostics.difference(first, second) ?: return
+private fun SpeedComparison(first: SpeedResult, second: SpeedResult, nowElapsedMs: Long, onClear: () -> Unit) {
+    val status = SpeedDiagnostics.comparisonStatus(first, second, nowElapsedMs)
+    val delta = SpeedDiagnostics.difference(first, second, nowElapsedMs)
     Spacer(Modifier.height(8.dp))
-    Text("СРАВНЕНИЕ ДВУХ ЗАМЕРОВ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    Text("ДВА ЗАМЕРА", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     fun formatted(value: Double?) = value?.takeIf { it.isFinite() && it > 0.0 }?.let { "%.1f".format(it) } ?: "—"
     fun change(value: Double?) = when {
         value == null -> "разница недоступна"
@@ -601,9 +615,18 @@ private fun SpeedComparison(first: SpeedResult, second: SpeedResult, onClear: ()
         value > 0 -> "разница +%.1f Мбит/с".format(value)
         else -> "разница %.1f Мбит/с".format(value)
     }
-    Text("Скачивание: ${formatted(first.downloadMbps)} → ${formatted(second.downloadMbps)} Мбит/с · ${change(delta.downloadMbps)}", style = MaterialTheme.typography.bodySmall)
-    Text("Отдача: ${formatted(first.uploadMbps)} → ${formatted(second.uploadMbps)} Мбит/с · ${change(delta.uploadMbps)}", style = MaterialTheme.typography.bodySmall)
-    Text("Это два отдельных ручных запуска. Время, сеть и нагрузка могли измениться; разница не доказывает, что приложение улучшило соединение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("Скачивание: ${formatted(first.downloadMbps)} → ${formatted(second.downloadMbps)} Мбит/с · ${change(delta?.downloadMbps)}", style = MaterialTheme.typography.bodySmall)
+    Text("Отдача: ${formatted(first.uploadMbps)} → ${formatted(second.uploadMbps)} Мбит/с · ${change(delta?.uploadMbps)}", style = MaterialTheme.typography.bodySmall)
+    val reason = when (status) {
+        SpeedComparisonStatus.READY -> if (delta == null) "Нет общего успешно измеренного направления." else null
+        SpeedComparisonStatus.INCOMPLETE -> "Один из тестов прерван; разницу не показываем."
+        SpeedComparisonStatus.MISSING_METADATA -> "Нет данных о сети или времени; разницу не показываем."
+        SpeedComparisonStatus.DIFFERENT_NETWORK -> "Замеры выполнены в разных мобильных сетях; разницу не показываем."
+        SpeedComparisonStatus.EXPIRED -> "Первому замеру не менее 10 минут; разницу не показываем."
+        SpeedComparisonStatus.INVALID_TIME -> "Порядок времени замеров недостоверен; разницу не показываем."
+    }
+    if (reason != null) Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("Сравнение доступно менее 10 минут после первого замера при совпадении сети. Это не гарантирует непрерывность связи или одинаковые условия между запусками и не доказывает причину изменения.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     TextButton(onClick = onClear) { Text("Скрыть сравнение") }
 }
 
