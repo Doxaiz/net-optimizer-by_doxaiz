@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.TrafficStats
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -105,9 +106,9 @@ internal class LoadOptimizationController(private val context: Context, private 
                 }
                 // Both runs must use the same resolved IP and selected TCP port.
                 val pinnedTarget = selectedTarget.copy(host = address)
-                val result = PingTester(context).test(pinnedTarget, LoadComparison.ATTEMPTS)
+                val (result, traffic) = measureWithTraffic(initial, pinnedTarget)
                 if (!valid(currentGuard, initial)) return@launch
-                val sample = result.asLoadSample()
+                val sample = result.asLoadSample(traffic)
                 if (result.status != PingStatus.COMPLETED || !LoadComparison.usable(sample)) {
                     clear("Исходный замер не удался: нужно не менее 4 успешных TCP-подключений из 6, заряд не ниже 20% и стабильная мобильная сеть.")
                     return@launch
@@ -137,9 +138,9 @@ internal class LoadOptimizationController(private val context: Context, private 
         state = state.copy(phase = LoadPhase.CHECKING, after = null, message = "Повторяем TCP-замер до того же адреса…")
         measurement = scope.launch {
             try {
-                val result = PingTester(context).test(pinned, LoadComparison.ATTEMPTS)
+                val (result, traffic) = measureWithTraffic(initial, pinned)
                 if (!valid(currentGuard, initial)) return@launch
-                val sample = result.asLoadSample()
+                val sample = result.asLoadSample(traffic)
                 state = if (result.status == PingStatus.COMPLETED && LoadComparison.usable(sample)) {
                     state.copy(phase = LoadPhase.RESULT, after = sample, message = "")
                 } else {
@@ -155,6 +156,20 @@ internal class LoadOptimizationController(private val context: Context, private 
                 }
             }
         }
+    }
+
+    /** Optional counter readings must not prevent a TCP measurement when unavailable. */
+    private suspend fun measureWithTraffic(initial: Network, pinned: PingTarget) = withContext(Dispatchers.IO) {
+        fun snapshot(): MobileCounters? = try {
+            val rx = TrafficStats.getMobileRxBytes()
+            val tx = TrafficStats.getMobileTxBytes()
+            MobileCounters(initial.networkHandle, SystemClock.elapsedRealtime(), rx, tx)
+        } catch (_: Exception) { null }
+
+        val before = snapshot()
+        val result = PingTester(context).test(pinned, LoadComparison.ATTEMPTS)
+        val after = snapshot()
+        result to ProbeTrafficWindow.between(before, after)
     }
 
     fun onStart() {
@@ -208,5 +223,5 @@ internal class LoadOptimizationController(private val context: Context, private 
     }
 }
 
-private fun com.doxaiz.netoptimizer.core.net.PingResult.asLoadSample() =
-    LoadSample(attemptsMade, successfulAttempts, avgMs, jitterMs, lossPercent)
+private fun com.doxaiz.netoptimizer.core.net.PingResult.asLoadSample(traffic: ProbeTraffic?) =
+    LoadSample(attemptsMade, successfulAttempts, avgMs, jitterMs, lossPercent, traffic)

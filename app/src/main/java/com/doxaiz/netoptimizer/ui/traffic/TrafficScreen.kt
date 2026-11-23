@@ -953,9 +953,13 @@ private fun LoadOptimizationCard(
             }
             state.endpoint?.let { Text("Цель замера: $it", style = MaterialTheme.typography.bodySmall) }
             state.resolvedEndpoint?.takeIf { it != state.endpoint }?.let { Text("Подключение к IP: $it", style = MaterialTheme.typography.bodySmall) }
-            state.before?.let { Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium) }
+            state.before?.let {
+                Text("До: ${loadSampleText(it)}", style = MaterialTheme.typography.bodyMedium)
+                Text("Передача во время серии до: ${probeTrafficText(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             state.after?.let { after ->
                 Text("После: ${loadSampleText(after)}", style = MaterialTheme.typography.bodyMedium)
+                Text("Передача во время серии после: ${probeTrafficText(after)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 state.before?.let { before ->
                     LoadComparison.delta(before, after)?.let { delta ->
                         val text = when {
@@ -972,6 +976,7 @@ private fun LoadOptimizationCard(
                 }
                 Text("Это разница двух замеров, причина изменения неизвестна.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (state.before != null) Text("Средняя передача всех мобильных интерфейсов между снимками счётчиков вокруг серии TCP, включая трафик самого теста. Короткие серии менее секунды и недоступные счётчики не показываются. Это не нагрузка отдельного приложения и не доказательство причины задержки; данные Android и учёт раздачи могут запаздывать или отличаться.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!optimizationRunning && details && state.message.isNotEmpty())
                 Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!optimizationRunning && details) {
@@ -1015,6 +1020,10 @@ private fun LoadOptimizationCard(
 
 private fun loadSampleText(sample: LoadSample): String =
     "${sample.averageMs} мс · разброс ${sample.jitterMs} мс · ${sample.successes}/${sample.attempts} успешных"
+
+private fun probeTrafficText(sample: LoadSample): String = sample.traffic?.let {
+    "↓ ${formatRate(it.rxPerSecond)} · ↑ ${formatRate(it.txPerSecond)} за ${"%.1f".format(it.durationMs / 1000.0)} с"
+} ?: "нет надёжных данных (счётчики или длительность серии)"
 
 private fun outsideForegroundText(app: AppTraffic): String =
     "Условно фон: " + (app.outsideForegroundBytes?.let(::formatBytes) ?: "нет данных")

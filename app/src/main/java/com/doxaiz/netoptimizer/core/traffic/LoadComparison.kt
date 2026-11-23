@@ -1,7 +1,14 @@
 package com.doxaiz.netoptimizer.core.traffic
 
 /** A completed series of TCP connections to the same pinned endpoint, not ICMP/game ping. */
-internal data class LoadSample(val attempts: Int, val successes: Int, val averageMs: Int, val jitterMs: Int, val failedPercent: Int)
+internal data class LoadSample(
+    val attempts: Int,
+    val successes: Int,
+    val averageMs: Int,
+    val jitterMs: Int,
+    val failedPercent: Int,
+    val traffic: ProbeTraffic? = null
+)
 
 internal object LoadComparison {
     const val ATTEMPTS = 6
