@@ -36,6 +36,18 @@ class SpeedDiagnosticsTest {
         assertEquals(listOf(SpeedHint.NO_STRONG_INDICATION), SpeedDiagnostics.hints(result(latency = LoadedLatency(-1, Int.MAX_VALUE, 3, 3))))
     }
 
+    @Test fun uploadLatencyRequiresSuccessfulTransferAndAtLeastThreeSamples() {
+        fun upload(up: Double?, latency: LoadedLatency) = result(up = up).copy(uploadLatency = latency)
+        val high = LoadedLatency(20, 121, 3, 3)
+        assertEquals(listOf(SpeedHint.UPLOAD_LOADED_TCP_INCREASE), SpeedDiagnostics.hints(upload(5.0, high)))
+        assertEquals(listOf(SpeedHint.NO_STRONG_INDICATION), SpeedDiagnostics.hints(upload(5.0, LoadedLatency(20, 120, 3, 3))))
+        assertEquals(listOf(SpeedHint.NO_STRONG_INDICATION), SpeedDiagnostics.hints(upload(5.0, LoadedLatency(20, 500, 3, 2))))
+        assertEquals(listOf(SpeedHint.NO_STRONG_INDICATION), SpeedDiagnostics.hints(upload(5.0, LoadedLatency(-1, 500, 3, 3))))
+        assertEquals(listOf(SpeedHint.INCOMPLETE), SpeedDiagnostics.hints(upload(null, high)))
+        assertTrue(SpeedDiagnostics.hints(result(latency = high).copy(uploadLatency = high)).containsAll(
+            listOf(SpeedHint.LOADED_TCP_INCREASE, SpeedHint.UPLOAD_LOADED_TCP_INCREASE)))
+    }
+
     @Test fun comparesOnlyPresentDirectionsAndKeepsDirection() {
         assertEquals(SpeedDifference(2.0, -1.0), SpeedDiagnostics.difference(result(5.0, 3.0), result(7.0, 2.0)))
         assertEquals(SpeedDifference(null, 1.0), SpeedDiagnostics.difference(result(null, 3.0), result(7.0, 4.0)))

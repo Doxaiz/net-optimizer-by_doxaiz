@@ -4,7 +4,7 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/** Runs TCP connects to the same numeric endpoint before and during an actual download. */
+/** Runs TCP connects before and during one transfer, accepting only samples overlapping progress. */
 internal class DownloadLatencyProbe(
     private val cancelled: AtomicBoolean,
     private val check: () -> Unit,
@@ -56,7 +56,10 @@ internal class DownloadLatencyProbe(
         }
     }
 
-    /** Called after the last byte or on error. Never read the list while the sampler is alive. */
+    /** True if a timed-out sampler still owns the shared probe socket. */
+    fun samplerRunning(): Boolean = sampler?.isAlive == true
+
+    /** Called after the transfer or on error. Never read the list while the sampler is alive. */
     fun finish(): LoadedLatency {
         active.set(false)
         val thread = sampler

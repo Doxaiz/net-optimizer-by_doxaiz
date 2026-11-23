@@ -47,6 +47,7 @@ import com.doxaiz.netoptimizer.core.dns.PrivateDns
 import com.doxaiz.netoptimizer.core.net.KeepAliveEngine
 import com.doxaiz.netoptimizer.core.net.KeepAliveProfile
 import com.doxaiz.netoptimizer.core.net.KeepAliveStatus
+import com.doxaiz.netoptimizer.core.net.LoadedLatency
 import com.doxaiz.netoptimizer.core.net.description
 import com.doxaiz.netoptimizer.core.util.Beeper
 import com.doxaiz.netoptimizer.core.dns.DnsCatalog
@@ -412,24 +413,12 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                         }
                         if (speedCancelled && !speedTesting) Text("Спидтест остановлен.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (details) speed?.downloadLatency?.let { latency ->
-                            Spacer(Modifier.height(8.dp))
-                            Text("ЗАДЕРЖКА ПРИ СКАЧИВАНИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            val delta = latency.differenceMs
-                            if (delta != null) {
-                                val deltaText = if (delta > 0) "+$delta" else delta.toString()
-                                val color = when {
-                                    delta > 100 -> MaterialTheme.colorScheme.error
-                                    delta > 30 -> MaterialTheme.colorScheme.primary
-                                    else -> AccentGreen
-                                }
-                                Text("${latency.idleMedianMs} → ${latency.loadedMedianMs} мс · $deltaText мс", style = MaterialTheme.typography.titleMedium, color = color)
-                                Text(if (delta > 100) "Сильный рост задержки в этом замере." else if (delta > 30) "Задержка заметно выросла в этом замере." else "Значительного роста задержки в этом замере не видно.", style = MaterialTheme.typography.bodySmall)
-                                Text("Успешных замеров: до ${latency.idleSuccesses}, при скачивании ${latency.loadedSuccesses}. Пороги оценки условные.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            } else {
-                                Text("Недостаточно успешных замеров: до ${latency.idleSuccesses}, при скачивании ${latency.loadedSuccesses}; нужно не менее 3 в каждом режиме.", style = MaterialTheme.typography.bodySmall)
-                            }
+                            SpeedLoadedLatency("СКАЧИВАНИИ", "скачивании", latency)
                         }
-                        if (details) Text("Сравниваем время установления TCP-соединения с 1.1.1.1:443 до и во время чтения данных с Cloudflare. Это не ICMP-пинг и лишь ориентир на возможный буферблат: загрузка может не насытить канал, другие приложения и маршруты влияют на результат. Отдача под нагрузкой не проверяется.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (details) speed?.uploadLatency?.let { latency ->
+                            SpeedLoadedLatency("ОТДАЧЕ", "отдаче", latency)
+                        }
+                        if (details) Text("TCP-соединения к 1.1.1.1:443 до и во время каждого обмена с Cloudflare. При отдаче учитывается запись в поток, не подтверждение доставки. Это не ICMP-пинг; короткий тест может не насытить канал, а другие приложения и маршруты влияют на результат. Это не диагноз буферблата.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (details) speed?.let { result -> SpeedHints(result) }
                         val before = previousSpeed
                         val after = speed
@@ -560,6 +549,26 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
 }
 
 @Composable
+private fun SpeedLoadedLatency(title: String, phase: String, latency: LoadedLatency) {
+    Spacer(Modifier.height(8.dp))
+    Text("ЗАДЕРЖКА ПРИ $title", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val delta = latency.differenceMs
+    if (delta != null) {
+        val deltaText = if (delta > 0) "+$delta" else delta.toString()
+        val color = when {
+            delta > 100 -> MaterialTheme.colorScheme.error
+            delta > 30 -> MaterialTheme.colorScheme.primary
+            else -> AccentGreen
+        }
+        Text("${latency.idleMedianMs} → ${latency.loadedMedianMs} мс · $deltaText мс", style = MaterialTheme.typography.titleMedium, color = color)
+        Text(if (delta > 100) "Сильный рост задержки в этом замере." else if (delta > 30) "Задержка заметно выросла в этом замере." else "Значительного роста задержки в этом замере не видно.", style = MaterialTheme.typography.bodySmall)
+        Text("Успешных замеров: до ${latency.idleSuccesses}, при $phase ${latency.loadedSuccesses}. Пороги условные.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        Text("Недостаточно успешных замеров: до ${latency.idleSuccesses}, при $phase ${latency.loadedSuccesses}; нужно не менее 3 в каждом режиме.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun SpeedHints(result: SpeedResult) {
     val hints = SpeedDiagnostics.hints(result)
     if (hints.isEmpty()) return
@@ -571,7 +580,8 @@ private fun SpeedHints(result: SpeedResult) {
             SpeedHint.SLOW_DOWNLOAD -> "Скачивание ниже условных 2 Мбит/с: большие файлы могут загружаться долго."
             SpeedHint.SLOW_UPLOAD -> "Отдача ниже условного 1 Мбит/с: отправка больших файлов может занять больше времени."
             SpeedHint.HIGH_IDLE_TCP -> "TCP-подключение к 1.1.1.1 до скачивания заняло более 150 мс. Это не пинг игрового сервера."
-            SpeedHint.LOADED_TCP_INCREASE -> "Во время скачивания медиана TCP выросла более чем на 100 мс. Это лишь возможный признак задержки под нагрузкой."
+            SpeedHint.LOADED_TCP_INCREASE -> "При скачивании TCP вырос более чем на 100 мс. Попробуйте приостановить крупные скачивания на телефоне и подключённых устройствах и повторить замер."
+            SpeedHint.UPLOAD_LOADED_TCP_INCREASE -> "При отдаче TCP вырос более чем на 100 мс. Попробуйте приостановить отправку файлов, резервное копирование и обновления на телефоне и подключённых устройствах, затем повторите замер."
             SpeedHint.NO_STRONG_INDICATION -> "Доступные цифры не вышли за условные пороги этих подсказок; качество связи это не гарантирует."
         }
         Text("• $text", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -1,7 +1,7 @@
 package com.doxaiz.netoptimizer.core.net
 
 /** Hints are observations from one short test, never a diagnosis of a network or an app. */
-enum class SpeedHint { INCOMPLETE, SLOW_DOWNLOAD, SLOW_UPLOAD, HIGH_IDLE_TCP, LOADED_TCP_INCREASE, NO_STRONG_INDICATION }
+enum class SpeedHint { INCOMPLETE, SLOW_DOWNLOAD, SLOW_UPLOAD, HIGH_IDLE_TCP, LOADED_TCP_INCREASE, UPLOAD_LOADED_TCP_INCREASE, NO_STRONG_INDICATION }
 
 data class SpeedDifference(val downloadMbps: Double?, val uploadMbps: Double?)
 
@@ -21,6 +21,11 @@ object SpeedDiagnostics {
         val loaded = latency?.loadedMedianMs?.takeIf { it >= 0 && latency.loadedSuccesses >= 3 }
         if (idle != null && idle > 150) hints += SpeedHint.HIGH_IDLE_TCP
         if (idle != null && loaded != null && loaded.toLong() - idle.toLong() > 100) hints += SpeedHint.LOADED_TCP_INCREASE
+        val uploadLatency = result.uploadLatency
+        val uploadIdle = uploadLatency?.idleMedianMs?.takeIf { it >= 0 && uploadLatency.idleSuccesses >= 3 }
+        val uploadLoaded = uploadLatency?.loadedMedianMs?.takeIf { it >= 0 && uploadLatency.loadedSuccesses >= 3 }
+        if (upload != null && uploadIdle != null && uploadLoaded != null && uploadLoaded.toLong() - uploadIdle.toLong() > 100)
+            hints += SpeedHint.UPLOAD_LOADED_TCP_INCREASE
         if (hints.isEmpty()) hints += SpeedHint.NO_STRONG_INDICATION
         return hints
     }

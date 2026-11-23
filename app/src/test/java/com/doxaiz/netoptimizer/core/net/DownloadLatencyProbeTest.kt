@@ -2,6 +2,7 @@ package com.doxaiz.netoptimizer.core.net
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -35,6 +36,36 @@ class DownloadLatencyProbeTest {
         assertEquals(20, result.idleMedianMs)
         assertEquals(60, result.loadedMedianMs)
         assertEquals(40, result.differenceMs)
+    }
+
+    @Test fun uploadStreamProgressCanOverlapProbeWithoutClaimingDelivery() {
+        val entered = Semaphore(0)
+        val release = Semaphore(0)
+        val calls = AtomicInteger()
+        val probe = DownloadLatencyProbe(AtomicBoolean(false), {}, {
+            if (calls.incrementAndGet() <= 4) 20 else {
+                entered.release()
+                check(release.tryAcquire(3, TimeUnit.SECONDS))
+                80
+            }
+        }, sampleIntervalMs = 0)
+        probe.measureIdle()
+        var chunks = 0
+        try {
+            UploadProgress.write(ByteArrayOutputStream(), ByteArray(4), 20, {}, {
+                probe.onBytes(it)
+                chunks++
+                if (chunks > 1) release.release()
+                assertTrue(entered.tryAcquire(3, TimeUnit.SECONDS))
+            })
+        } finally {
+            release.release()
+        }
+        val latency = probe.finish()
+        assertEquals(20, latency.idleMedianMs)
+        assertEquals(80, latency.loadedMedianMs)
+        assertTrue(latency.loadedSuccesses >= 3)
+        assertFalse(probe.samplerRunning())
     }
 
     @Test fun noLoadedSamplingWhenIdleProbesFail() {

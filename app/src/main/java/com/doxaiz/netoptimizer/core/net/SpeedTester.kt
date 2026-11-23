@@ -51,7 +51,10 @@ class SpeedTester(private val context: Context) {
                     }
                 }
                 var registered = false
-                val latency = AtomicReference<LoadedLatency?>(null)
+                val downloadLatency = AtomicReference<LoadedLatency?>(null)
+                val uploadLatency = AtomicReference<LoadedLatency?>(null)
+                // A timed-out sampler must never race the next phase for the shared socket.
+                val canProbe = AtomicBoolean(true)
                 val result = try {
                     if (network != null && manager != null) {
                         manager.registerDefaultNetworkCallback(callback)
@@ -63,14 +66,17 @@ class SpeedTester(private val context: Context) {
                         batteryOk = { CellularNetwork.batteryOk(context) },
                         cancelled = { cancelled.get() },
                         transfer = { direction, check ->
-                            transfer(requireNotNull(network), direction, connection, probeSocket, cancelled, check, latency)
+                            transfer(requireNotNull(network), direction, connection, probeSocket, cancelled, check,
+                                if (direction == SpeedDirection.DOWNLOAD) downloadLatency else uploadLatency, canProbe)
                         }
                     )
                 } finally {
                     if (registered) manager?.unregisterNetworkCallback(callback)
                 }
-                val completed = if (result.status == SpeedStatus.COMPLETED && result.downloadMbps != null)
-                    result.copy(downloadLatency = latency.get()) else result
+                val completed = if (result.status == SpeedStatus.COMPLETED) result.copy(
+                    downloadLatency = downloadLatency.get().takeIf { result.downloadMbps != null },
+                    uploadLatency = uploadLatency.get().takeIf { result.uploadMbps != null }
+                ) else result
                 if (continuation.isActive) continuation.resume(completed)
             } catch (e: CancellationException) {
                 // An unexpected worker interruption must not leave an active caller waiting forever.
@@ -88,9 +94,10 @@ class SpeedTester(private val context: Context) {
         probeSocket: AtomicReference<Socket?>,
         cancelled: AtomicBoolean,
         check: () -> Unit,
-        latency: AtomicReference<LoadedLatency?>
+        latency: AtomicReference<LoadedLatency?>,
+        canProbe: AtomicBoolean
     ): Double? {
-        val probe = if (direction == SpeedDirection.DOWNLOAD)
+        val probe = if (canProbe.get())
             DownloadLatencyProbe(cancelled, check, { tcpConnect(network, probeSocket, cancelled) }) else null
         probe?.measureIdle()
         val count = if (direction == SpeedDirection.DOWNLOAD) DOWNLOAD_BYTES else UPLOAD_BYTES
@@ -144,13 +151,7 @@ class SpeedTester(private val context: Context) {
                 }
             } else {
                 conn.outputStream.use { output ->
-                    var sent = 0
-                    while (sent < count) {
-                        checkDeadline()
-                        val n = minOf(buffer.size, count - sent)
-                        output.write(buffer, 0, n)
-                        sent += n
-                    }
+                    UploadProgress.write(output, buffer, count, ::checkDeadline) { probe?.onBytes(it) }
                 }
                 checkDeadline()
                 if (conn.responseCode !in 200..299) return null
@@ -159,7 +160,11 @@ class SpeedTester(private val context: Context) {
             return SpeedTestPlan.mbps(count.toLong(), System.nanoTime() - start)
         } finally {
             try {
-                probe?.let { latency.set(it.finish()) }
+                probe?.let {
+                    try { latency.set(it.finish()) } finally {
+                        if (it.samplerRunning()) canProbe.set(false)
+                    }
+                }
             } finally {
                 current.compareAndSet(conn, null)
                 conn.disconnect()
