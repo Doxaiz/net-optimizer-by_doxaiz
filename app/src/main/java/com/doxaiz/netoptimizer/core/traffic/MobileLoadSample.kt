@@ -1,7 +1,16 @@
 package com.doxaiz.netoptimizer.core.traffic
 
+/** Highest average over one sampled interval, not an instantaneous maximum. */
+internal data class MobileLoadPeak(val bytesPerSecond: Double, val durationMs: Long)
+
 /** Mobile-interface totals across one uninterrupted foreground sampling window. */
-internal data class MobileLoadSample(val durationMs: Long, val received: Long, val sent: Long) {
+internal data class MobileLoadSample(
+    val durationMs: Long,
+    val received: Long,
+    val sent: Long,
+    val peakReceived: MobileLoadPeak,
+    val peakSent: MobileLoadPeak
+) {
     val rxPerSecond: Double get() = received.toDouble() * 1000.0 / durationMs
     val txPerSecond: Double get() = sent.toDouble() * 1000.0 / durationMs
 }
@@ -22,7 +31,13 @@ internal object MobileLoadWindow {
         val last = samples.last()
         val duration = last.elapsedMs - first.elapsedMs
         if (duration < INTERVAL_MS * INTERVALS || duration > MAX_INTERVAL_MS * INTERVALS) return null
-        return MobileLoadSample(duration, last.rx - first.rx, last.tx - first.tx)
+        val intervals = samples.zipWithNext()
+        fun peak(bytes: (MobileCounters) -> Long): MobileLoadPeak = intervals.map { (a, b) ->
+            val intervalMs = b.elapsedMs - a.elapsedMs
+            MobileLoadPeak((bytes(b) - bytes(a)).toDouble() * 1000.0 / intervalMs, intervalMs)
+        }.maxBy { it.bytesPerSecond }
+        return MobileLoadSample(duration, last.rx - first.rx, last.tx - first.tx,
+            peak { it.rx }, peak { it.tx })
     }
 }
 

@@ -766,13 +766,15 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         }, modifier = Modifier.fillMaxWidth()) { Text("Измерить нагрузку за 10 секунд") }
                     }
                     previousLoad?.let { previous ->
-                        Text("Прошлый: ${previous.durationMs / 1000} с · ↓ ${formatBytes(previous.received)} · ↑ ${formatBytes(previous.sent)}; в среднем ↓ ${formatRate(previous.rxPerSecond)} · ↑ ${formatRate(previous.txPerSecond)}", style = MaterialTheme.typography.bodySmall)
+                        Text("Прошлый: ${previous.durationMs / 1000} с · ↓ ${formatBytes(previous.received)} · ↑ ${formatBytes(previous.sent)}; в среднем ↓ ${formatRate(previous.rxPerSecond)} · ↑ ${formatRate(previous.txPerSecond)}\nНаибольшая средняя за интервал: ↓ ${formatRate(previous.peakReceived.bytesPerSecond)} (${"%.1f".format(previous.peakReceived.durationMs / 1000.0)} с) · ↑ ${formatRate(previous.peakSent.bytesPerSecond)} (${"%.1f".format(previous.peakSent.durationMs / 1000.0)} с)", style = MaterialTheme.typography.bodySmall)
+                        Text("Замеры могли проходить в разное время и в разных сетях.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     when (val result = loadResult) {
                         is MobileLoadResult.Success -> {
                             val sample = result.sample
                             Text("За ${sample.durationMs / 1000} с: ↓ ${formatBytes(sample.received)} · ↑ ${formatBytes(sample.sent)}\nВ среднем: ↓ ${formatRate(sample.rxPerSecond)} · ↑ ${formatRate(sample.txPerSecond)}", style = MaterialTheme.typography.bodyMedium)
-                            Text("Расход всех мобильных интерфейсов, не скорость тарифа или отдельного приложения. Разница замеров не доказывает причину; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Наибольшая средняя за короткий интервал: ↓ ${formatRate(sample.peakReceived.bytesPerSecond)} (${"%.1f".format(sample.peakReceived.durationMs / 1000.0)} с) · ↑ ${formatRate(sample.peakSent.bytesPerSecond)} (${"%.1f".format(sample.peakSent.durationMs / 1000.0)} с)", style = MaterialTheme.typography.bodySmall)
+                            Text("Пики приёма и отдачи могут приходиться на разные интервалы; это не мгновенная скорость. Если есть всплеск, попробуйте приостановить соответствующие загрузки или резервное копирование и повторить замер. Расход всех мобильных интерфейсов, не скорость тарифа или отдельного приложения. Разница замеров не доказывает причину; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         is MobileLoadResult.Failure -> Text(when (result.reason) {
                             MobileLoadFailure.NO_MOBILE -> "Для замера подключите мобильный интернет."
@@ -1005,7 +1007,7 @@ private fun LoadOptimizationCard(
             Text("TCP-задержка до выбранного адреса, не скорость и не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (details) {
                 Text("Шесть TCP-подключений к одному IP; требуется минимум четыре ответа. При USB-модеме проверьте загрузки на ПК. Остановка приложений доступна ниже после подтверждения и влияет на всё приложение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Для сравнения скорости используйте два спидтеста в Инструменты → Замеры (до 15 МБ каждый). При сворачивании замер отменяется; сравнение хранится до 10 минут и сбрасывается при смене сети.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Для сравнения скорости используйте два спидтеста в Инструменты → Замеры (до 15 МБ каждый). При сворачивании текущий замер отменяется; разница доступна менее 10 минут после первого замера, если сеть совпадает. Это не гарантирует непрерывность связи между замерами.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
