@@ -2,14 +2,24 @@ name: Prepare Rust and Android NDK
 runs:
   using: composite
   steps:
+    # The action's exact revision is pinned; the toolchain matches rust-toolchain.toml.
+    - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+      with:
+        toolchain: 1.85.1
+        components: rustfmt, clippy
+        targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
     - shell: bash
       run: |
         set -euo pipefail
-        # rust-toolchain.toml pins the compiler, components and all four Android targets.
         rustup show active-toolchain
         cargo --version
         ndk="$ANDROID_HOME/ndk/27.2.12479018"
         if [[ ! -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ]]; then
-          sdkmanager 'ndk;27.2.12479018'
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            echo '::error::Android SDK Manager was not found.'
+            exit 1
+          fi
+          "$sdkmanager" 'ndk;27.2.12479018'
         fi
         test -x "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"

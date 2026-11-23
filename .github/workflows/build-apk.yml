@@ -23,7 +23,7 @@ jobs:
           gradle-version: '8.7'
       - uses: ./.github/actions/setup-rust-android
       - name: Run unit tests and build debug APK
-        run: gradle --no-daemon --console plain testReleaseUnitTest assembleDebug
+        run: bash scripts/run-ci-gradle.sh testReleaseUnitTest assembleDebug
       - name: Check APK permissions, ABIs and native alignment
         run: |
           python3 scripts/check-apk-surface.py app/build/outputs/apk/debug/app-debug.apk

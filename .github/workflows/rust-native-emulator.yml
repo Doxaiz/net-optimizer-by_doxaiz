@@ -27,7 +27,7 @@ jobs:
         run: cargo test --locked --manifest-path native/netoptimizer-core/Cargo.toml
       - name: Build APK and Android instrumentation tests
         run: |
-          gradle --no-daemon --console plain assembleDebug assembleDebugAndroidTest
+          bash scripts/run-ci-gradle.sh assembleDebug assembleDebugAndroidTest
           python3 scripts/check-native-apk.py app/build/outputs/apk/debug/app-debug.apk
       - name: Enable emulator acceleration
         run: |
