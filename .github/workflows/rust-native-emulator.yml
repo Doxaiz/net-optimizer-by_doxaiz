@@ -12,7 +12,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [31, 34]
+        include:
+          - api: 31
+            target: google_apis
+            page_size: 4096
+          - api: 34
+            target: google_apis
+            page_size: 4096
+          # API 35 image with genuinely 16 KiB pages, not Android 16's compatibility mode.
+          - api: 35
+            target: google_apis_ps16k
+            page_size: 16384
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -38,9 +48,10 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
           arch: x86_64
           disable-animations: true
-          script: bash scripts/run-rust-instrumentation.sh
+          script: bash scripts/run-rust-instrumentation.sh com.doxaiz.netoptimizer.core.net.NativeMeasurementsInstrumentedTest ${{ matrix.page_size }}
 
   fallback:
     runs-on: ubuntu-latest

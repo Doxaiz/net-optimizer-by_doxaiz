@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # Only run on a disposable emulator. These APKs use the debug signing identity.
 set -euo pipefail
+# A successful install alone does not establish the emulator's actual page size.
+if [[ -n ${2:-} ]]; then
+  actual_page_size=$(adb shell getconf PAGE_SIZE | tr -d '\r\n')
+  echo "Android page size: $actual_page_size bytes (expected $2)"
+  if [[ "$actual_page_size" != "$2" ]]; then
+    echo '::error::Emulator page size does not match the requested test image' >&2
+    exit 1
+  fi
+fi
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 log="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/netoptimizer-rust-instrumentation.log"
