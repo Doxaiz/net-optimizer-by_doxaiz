@@ -21,11 +21,14 @@ adb shell am instrument -w -r -e class \
 tr -d '\r' < "$log" > "$log.clean"
 cat "$log.clean"
 if [[ $status -ne 0 ]] || ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$log.clean"; then
-  python3 - "$log.clean" <<'PY'
+  # This runs only on disposable CI emulators, never on a user's device.
+  adb logcat -d -t 1000 'AndroidRuntime:E' 'libc:F' 'DEBUG:F' 'ActivityManager:E' '*:S' > "$log.crash" 2>&1 || true
+  python3 - "$log.clean" "$log.crash" <<'PY'
 from pathlib import Path
 import sys
-s = Path(sys.argv[1]).read_text(errors='replace')[-6000:]
-print('::error::Android Rust instrumentation failed: ' + s.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+for label, path in zip(('instrumentation', 'emulator crash log'), sys.argv[1:]):
+    s = Path(path).read_text(errors='replace')[-6000:]
+    print('::error::Android Rust ' + label + ': ' + s.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
 PY
   exit 1
 fi
