@@ -13,7 +13,7 @@ class PingMeasurementPlanTest {
         val progress = mutableListOf<Int>()
         val answers = listOf(20, -1, 40).iterator()
         val result = PingMeasurementPlan.run(target, 3, { true }, { true }, { "address" },
-            { answers.next() }, { done, _ -> progress += done })
+            { answers.next() }, onProgress = { done, _ -> progress += done })
         assertEquals(PingStatus.COMPLETED, result.status)
         assertEquals(30, result.avgMs)
         assertEquals(3, result.attemptsMade)
@@ -65,6 +65,31 @@ class PingMeasurementPlanTest {
         assertEquals(4, result.successfulAttempts)
         assertNull(result.medianMs)
         assertNull(result.maximumMs)
+    }
+
+    @Test fun networkChangeDuringPauseSuppressesIncompleteSeriesEvenIfNetworkReturns() = runBlocking {
+        val guard = SessionNetworkGuard("mobile")
+        var connections = 0
+        val progress = mutableListOf<Int>()
+        val result = PingMeasurementPlan.run(target, 6, { guard.valid("mobile") }, { true },
+            { "address" }, { connections++; 10 },
+            betweenAttempts = { guard.available("wifi"); guard.available("mobile") },
+            onProgress = { completed, _ -> progress += completed })
+        assertEquals(PingStatus.NETWORK_CHANGED, result.status)
+        assertEquals(1, connections)
+        assertEquals(listOf(1), progress)
+        assertEquals(-1, result.avgMs)
+        assertNull(result.medianMs)
+    }
+
+    @Test fun lowBatteryDuringPauseStopsBeforeNextAttempt() = runBlocking {
+        var battery = true
+        var connections = 0
+        val result = PingMeasurementPlan.run(target, 6, { true }, { battery },
+            { "address" }, { connections++; 10 }, betweenAttempts = { battery = false })
+        assertEquals(PingStatus.LOW_BATTERY, result.status)
+        assertEquals(1, connections)
+        assertEquals(-1, result.avgMs)
     }
 
     @Test fun batteryFailureAfterResolutionIsNotReportedAsDnsFailure() = runBlocking {

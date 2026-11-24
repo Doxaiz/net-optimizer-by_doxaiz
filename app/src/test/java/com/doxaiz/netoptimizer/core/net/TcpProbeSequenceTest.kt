@@ -14,6 +14,31 @@ class TcpProbeSequenceTest {
         assertEquals(listOf(1 to 3, 2 to 3, 3 to 3), progress)
     }
 
+    @Test fun pausesOnlyBetweenAttemptsAndReportsProgressBeforeWaiting() = runBlocking {
+        val events = mutableListOf<String>()
+        val samples = TcpProbeSequence.run(3, beforeAttempt = { events += "check"; true },
+            connect = { events += "connect"; 12 },
+            betweenAttempts = { events += "pause" },
+            onProgress = { done, _ -> events += "progress$done" })
+        assertEquals(listOf(12, 12, 12), samples)
+        assertEquals(listOf("check", "connect", "progress1", "pause", "check", "connect", "progress2",
+            "pause", "check", "connect", "progress3"), events)
+        var pauses = 0
+        TcpProbeSequence.run(1, { true }, { 10 }, betweenAttempts = { pauses++ }) { _, _ -> }
+        assertEquals(0, pauses)
+    }
+
+    @Test fun cancellationDuringPauseDoesNotStartNextConnection() = runBlocking {
+        var connections = 0
+        try {
+            TcpProbeSequence.run(3, { true }, { connections++; 10 },
+                betweenAttempts = { throw CancellationException("cancel while waiting") }) { _, _ -> }
+            fail("Expected cancellation")
+        } catch (_: CancellationException) {
+            assertEquals(1, connections)
+        }
+    }
+
     @Test fun safetyInterruptionDoesNotReportUnperformedAttempts() = runBlocking {
         var checks = 0
         val progress = mutableListOf<Int>()

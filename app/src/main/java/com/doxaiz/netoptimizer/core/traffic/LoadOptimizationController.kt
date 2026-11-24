@@ -167,7 +167,7 @@ internal class LoadOptimizationController(private val context: Context, private 
         } catch (_: Exception) { null }
 
         val before = snapshot()
-        val result = PingTester(context).test(pinned, LoadComparison.ATTEMPTS)
+        val result = PingTester(context).test(pinned, LoadComparison.ATTEMPTS, intervalMs = LoadComparison.INTERVAL_MS)
         val after = snapshot()
         result to ProbeTrafficWindow.between(before, after)
     }

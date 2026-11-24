@@ -14,6 +14,7 @@ internal data class LoadSample(
 
 internal object LoadComparison {
     const val ATTEMPTS = 6
+    const val INTERVAL_MS = 1_000L
     const val MIN_SUCCESSES = 4
 
     fun usable(sample: LoadSample): Boolean =

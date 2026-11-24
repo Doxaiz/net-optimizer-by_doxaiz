@@ -451,7 +451,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         Checkbox(checked = if (ready) compareAutomatic else compareManual, onCheckedChange = { if (ready) compareAutomatic = it else compareManual = it })
                         Text("Сравнить задержку до и после")
                     }
-                    if (if (ready) compareAutomatic else compareManual) EndpointButton(comparisonTarget?.let(ComparisonEndpoint::label), ::editComparisonEndpoint)
+                    if (if (ready) compareAutomatic else compareManual) {
+                        Text("Каждая серия — 6 TCP-подключений с паузой 1 секунда между попытками; с ожиданием ответов может занять дольше 5 секунд. Это не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        EndpointButton(comparisonTarget?.let(ComparisonEndpoint::label), ::editComparisonEndpoint)
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = {
@@ -1013,7 +1016,7 @@ private fun LoadOptimizationCard(
             Text("Настройка общая для устройства и может задержать уведомления. Без Shizuku включите её в Android.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("TCP-задержка до выбранного адреса, не скорость и не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (details) {
-                Text("Шесть TCP-подключений к одному IP; требуется минимум четыре ответа. При USB-модеме проверьте загрузки на ПК. Остановка приложений доступна ниже после подтверждения и влияет на всё приложение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Шесть TCP-подключений к одному IP с паузой 1 секунда между попытками; требуется минимум четыре ответа. Даже такая короткая серия не отражает все будущие изменения сети. При USB-модеме проверьте загрузки на ПК. Остановка приложений доступна ниже после подтверждения и влияет на всё приложение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Для сравнения скорости используйте два спидтеста в Инструменты → Замеры (до 15 МБ каждый). При сворачивании текущий замер отменяется; разница доступна менее 10 минут после первого замера, если сеть совпадает. Это не гарантирует непрерывность связи между замерами.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

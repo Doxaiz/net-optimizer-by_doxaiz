@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.net.Socket
 
@@ -54,10 +55,12 @@ class PingTester(private val context: android.content.Context) {
     suspend fun test(
         target: PingTarget,
         attempts: Int = 6,
+        intervalMs: Long = 0,
         onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> }
     ): PingResult =
         withContext(Dispatchers.IO) {
             require(attempts > 0) { "attempts must be positive" }
+            require(intervalMs in 0..10_000L) { "intervalMs must be between 0 and 10000" }
             val network = CellularNetwork.active(context)
                 ?: return@withContext PingMeasurementPlan.result(target, emptyList(), PingStatus.NO_CELLULAR)
             if (!CellularNetwork.batteryOk(context)) return@withContext PingMeasurementPlan.result(target, emptyList(), PingStatus.LOW_BATTERY)
@@ -87,6 +90,7 @@ class PingTester(private val context: android.content.Context) {
                         catch (_: Exception) { null }
                     },
                     connect = { address -> connectOnce(network, address, target.port) },
+                    betweenAttempts = { if (intervalMs > 0) delay(intervalMs) },
                     onProgress = onProgress)
             } finally {
                 try { manager.unregisterNetworkCallback(callback) } catch (_: Exception) { }

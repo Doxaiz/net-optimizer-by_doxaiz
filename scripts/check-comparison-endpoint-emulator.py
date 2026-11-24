@@ -84,12 +84,21 @@ def accept_connections():
     while not stop.is_set():
         try:
             conn, addr = server.accept()
-            connections.append(addr)
+            connections.append((time.monotonic(), addr))
             conn.close()
         except socket.timeout:
             pass
         except OSError:
             break
+
+def verify_spaced_series(series):
+    if not 4 <= len(series) <= 6:
+        raise RuntimeError("Usable series did not connect to selected endpoint: " + str(len(series)))
+    span = series[-1][0] - series[0][0]
+    # Allow substantial scheduler and emulator jitter; this still rejects a burst with no pauses.
+    if span < 0.6 * (len(series) - 1):
+        raise RuntimeError("TCP series was not spread over time: " + str(span))
+
 
 thread = threading.Thread(target=accept_connections, daemon=True)
 thread.start()
@@ -135,13 +144,13 @@ try:
             time.sleep(1)
         else:
             raise RuntimeError("Settings did not open after baseline")
-        series_connections = len(connections) - before_connections
+        series = connections[before_connections:]
+        series_connections = len(series)
         adb("shell", "input", "keyevent", "KEYCODE_BACK")
         wait_for("Проверили настройку?")
         visible = {n.attrib.get("text") for n in nodes()}
         if "Я включил — измерить снова" in visible:
-            if not 4 <= series_connections <= 6:
-                raise RuntimeError("Usable baseline did not connect to selected endpoint: " + str(series_connections))
+            verify_spaced_series(series)
             break
         unavailable = "Исходный замер недоступен, поэтому сравнение невозможно. Проверьте переключатель экономии трафика в Android."
         if unavailable not in visible:
@@ -159,8 +168,7 @@ try:
     tap("Я включил — измерить снова")
     wait_for("Замеры готовы. Проверьте настройку в Android: её состояние не подтверждено.", scroll=True)
     wait_for("Цель замера: 10.0.2.2:" + str(port), scroll=True)
-    if not 4 <= len(connections) - before_after <= 6:
-        raise RuntimeError("Repeat measurement did not connect to the same endpoint: " + str(len(connections) - before_after))
+    verify_spaced_series(connections[before_after:])
     if "Restrict background status: disabled" not in adb("shell", "cmd", "netpolicy", "get", "restrict-background"):
         raise RuntimeError("Unexpected system policy change")
     print("Custom address, local validation, persistence and two usable TCP series passed")

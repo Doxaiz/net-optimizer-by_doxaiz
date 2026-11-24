@@ -12,6 +12,7 @@ internal object PingMeasurementPlan {
         batteryOk: () -> Boolean,
         resolve: () -> Address?,
         connect: (Address) -> Int,
+        betweenAttempts: suspend () -> Unit = {},
         onProgress: suspend (Int, Int) -> Unit = { _, _ -> }
     ): PingResult {
         require(attempts > 0)
@@ -29,7 +30,7 @@ internal object PingMeasurementPlan {
         val samples = TcpProbeSequence.run(attempts, beforeAttempt = {
             stopped = interruption()
             stopped == null
-        }, connect = { connect(address) }, onProgress = onProgress)
+        }, connect = { connect(address) }, betweenAttempts = betweenAttempts, onProgress = onProgress)
         val status = stopped ?: interruption() ?: PingStatus.COMPLETED
         return result(target, samples, status)
     }

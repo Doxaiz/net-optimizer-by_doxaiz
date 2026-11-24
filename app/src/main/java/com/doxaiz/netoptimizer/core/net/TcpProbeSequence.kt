@@ -9,11 +9,13 @@ internal object TcpProbeSequence {
         attempts: Int,
         beforeAttempt: () -> Boolean,
         connect: () -> Int,
+        betweenAttempts: suspend () -> Unit = {},
         onProgress: suspend (completed: Int, total: Int) -> Unit
     ): List<Int> {
         require(attempts > 0)
         val samples = mutableListOf<Int>()
-        repeat(attempts) {
+        repeat(attempts) { index ->
+            if (index > 0) betweenAttempts()
             currentCoroutineContext().ensureActive()
             if (!beforeAttempt()) return samples
             samples += connect()
