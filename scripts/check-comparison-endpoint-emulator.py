@@ -112,6 +112,7 @@ try:
     start()
     tap("Продолжить")
     open_compare()
+    wait_for("Адрес: yandex.ru:443", scroll=True)
     tap("Адрес: yandex.ru:443")
     replace_text("yandex.ru", "10.0.2.2")
     replace_text("443", "65536")
@@ -138,7 +139,8 @@ try:
         tap("Начать")
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
-            if "com.android.settings" in adb("shell", "dumpsys", "activity", "activities"):
+            # Activity history may mention Settings before it is in the foreground.
+            if any(n.attrib.get("package") == "com.android.settings" for n in nodes()):
                 break
             alive()
             time.sleep(1)

@@ -452,8 +452,8 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         Text("Сравнить задержку до и после")
                     }
                     if (if (ready) compareAutomatic else compareManual) {
-                        Text("Каждая серия — 6 TCP-подключений с паузой 1 секунда между попытками; с ожиданием ответов может занять дольше 5 секунд. Это не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         EndpointButton(comparisonTarget?.let(ComparisonEndpoint::label), ::editComparisonEndpoint)
+                        Text("Каждая серия — 6 TCP-подключений с паузой 1 секунда между попытками; с ожиданием ответов может занять дольше 5 секунд. Это не пинг игры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             },

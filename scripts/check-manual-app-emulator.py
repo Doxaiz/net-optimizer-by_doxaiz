@@ -75,7 +75,8 @@ def toggle_background_data():
 def wait_settings(timeout=100):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if "com.android.settings" in adb("shell", "dumpsys", "activity", "activities"):
+        # Background activity records do not prove Settings is visible yet.
+        if any(n.attrib.get("package") == "com.android.settings" for n in nodes()):
             return
         time.sleep(1)
     raise RuntimeError("Android app settings did not open")
@@ -177,9 +178,7 @@ try:
     # Even when an optional baseline cannot run, the user can change the setting.
     tap("Сравнить задержку до и после")
     tap("Настроить фон")
-    focus = adb("shell", "dumpsys", "activity", "activities")
-    if "com.android.settings" not in focus:
-        raise RuntimeError("Android app data settings did not open")
+    wait_settings()
     verify("Network Fixture")
     if stopped() or restricted(uid):
         raise RuntimeError("Opening data settings changed the fixture")

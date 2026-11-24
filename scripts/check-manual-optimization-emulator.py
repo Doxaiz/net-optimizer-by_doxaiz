@@ -75,7 +75,8 @@ def open_optimization(compare=False):
     tap("Начать")
     until = time.monotonic() + (100 if compare else 12)
     while time.monotonic() < until:
-        if "com.android.settings" in adb("shell", "dumpsys", "activity", "activities"):
+        # Activity history can contain Settings even while the comparison is still running.
+        if any(n.attrib.get("package") == "com.android.settings" for n in nodes()):
             return
         alive()
         time.sleep(1)
@@ -83,20 +84,24 @@ def open_optimization(compare=False):
 
 
 def switch_on_in_settings():
-    for node in nodes():
-        a = node.attrib
-        if a.get("class") in ("android.widget.Switch", "android.widget.SwitchWidget") and a.get("checkable") == "true":
-            if a.get("checked") == "true":
-                raise RuntimeError("Expected Data Saver to start disabled")
-            match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", a.get("bounds", ""))
-            if not match:
-                continue
-            x1, y1, x2, y2 = map(int, match.groups())
-            adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
-            time.sleep(3)
-            if status() != "Restrict background status: enabled":
-                raise RuntimeError("The Android settings switch did not enable Data Saver")
-            return
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        for node in nodes():
+            a = node.attrib
+            if a.get("package") == "com.android.settings" and a.get("class") in ("android.widget.Switch", "android.widget.SwitchWidget") and a.get("checkable") == "true":
+                if a.get("checked") == "true":
+                    raise RuntimeError("Expected Data Saver to start disabled")
+                match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", a.get("bounds", ""))
+                if not match:
+                    continue
+                x1, y1, x2, y2 = map(int, match.groups())
+                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                time.sleep(3)
+                if status() != "Restrict background status: enabled":
+                    raise RuntimeError("The Android settings switch did not enable Data Saver")
+                return
+        alive()
+        time.sleep(1)
     raise RuntimeError("Android settings switch not found: " + repr([n.attrib for n in nodes()]))
 
 
