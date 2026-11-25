@@ -786,10 +786,6 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                             }
                         }, modifier = Modifier.fillMaxWidth()) { Text("Измерить нагрузку за 10 секунд") }
                     }
-                    previousLoad?.let { previous ->
-                        Text("Прошлый: ${previous.durationMs / 1000} с · ↓ ${formatBytes(previous.received)} · ↑ ${formatBytes(previous.sent)}; в среднем ↓ ${formatRate(previous.rxPerSecond)} · ↑ ${formatRate(previous.txPerSecond)}\nНаибольшая средняя за интервал: ↓ ${formatRate(previous.peakReceived.bytesPerSecond)} (${"%.1f".format(previous.peakReceived.durationMs / 1000.0)} с) · ↑ ${formatRate(previous.peakSent.bytesPerSecond)} (${"%.1f".format(previous.peakSent.durationMs / 1000.0)} с)", style = MaterialTheme.typography.bodySmall)
-                        Text("Замеры могли проходить в разное время и в разных сетях.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                     when (val result = loadResult) {
                         is MobileLoadResult.Success -> {
                             val sample = result.sample
@@ -807,6 +803,10 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                             MobileLoadFailure.INVALID_SAMPLE -> "Замер прерван или счётчики сброшены. Повторите."
                         }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         null -> Unit
+                    }
+                    previousLoad?.let { previous ->
+                        Text("Прошлый: ${previous.durationMs / 1000} с · ↓ ${formatBytes(previous.received)} · ↑ ${formatBytes(previous.sent)}; в среднем ↓ ${formatRate(previous.rxPerSecond)} · ↑ ${formatRate(previous.txPerSecond)}\nНаибольшая средняя за интервал: ↓ ${formatRate(previous.peakReceived.bytesPerSecond)} (${"%.1f".format(previous.peakReceived.durationMs / 1000.0)} с) · ↑ ${formatRate(previous.peakSent.bytesPerSecond)} (${"%.1f".format(previous.peakSent.durationMs / 1000.0)} с)", style = MaterialTheme.typography.bodySmall)
+                        Text("Замеры могли проходить в разное время и в разных сетях.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (details && history.size >= 2) {
                         TrafficGraph(history)
