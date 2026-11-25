@@ -84,6 +84,7 @@ def start_measurement(label="Измерить нагрузку за 10 секу�
     """Return None when measuring started, or the final text of an instantly finished probe."""
     for _ in range(3):
         reveal(label)
+        stale = result_text(texts())
         if label in texts():
             tap(label)
         for _ in range(6):
@@ -92,7 +93,8 @@ def start_measurement(label="Измерить нагрузку за 10 секу�
             if "Отменить замер нагрузки" in visible:
                 return None
             finished = result_text(visible)
-            if finished:
+            # The tap clears the previous result, so an unchanged text means it was not registered.
+            if finished and finished != stale:
                 # A probe without a cellular network fails before progress becomes visible.
                 return finished
         if not in_app():
