@@ -41,6 +41,19 @@ class MobileLoadComparisonReportTest {
         assertTrue(time.headline.startsWith("Разница недоступна: порядок времени недостоверен"))
     }
 
+    @Test fun unreliableNetworkHidesTheDifferenceEvenForCompatibleSamples() {
+        val after = sample(12_000, rx = 3_000, tx = 1_000, rxStep = 100, txStep = 200)
+        assertNotNull(MobileLoadComparison.difference(before, after, 22_000))
+        // A suspended, captive-portalled or unvalidated network makes any difference meaningless.
+        assertNull(MobileLoadComparison.difference(before, after, 22_000, reliableNetwork = false))
+        val report = MobileLoadComparisonReportBuilder.build(before, after, 22_000, reliableNetwork = false)
+        assertEquals("", report.explanation)
+        assertTrue(report.headline.startsWith("Разница недоступна: Android сообщает об ограничениях текущей сети"))
+        // Timing and network-identity problems are reported before the reliability hint.
+        assertEquals(MobileLoadComparisonStatus.DIFFERENT_NETWORK,
+            MobileLoadComparison.status(before, sample(12_000, network = 9), 22_000, reliableNetwork = false))
+    }
+
     @Test fun largeValuesUseReadableUnitsWithoutLocaleDecimalsLeaking() {
         val bigBefore = sample(1_000, rx = 0, tx = 0, rxStep = 0, txStep = 0)
         val bigAfter = sample(12_000, rx = 0, tx = 0, rxStep = 2_000_000, txStep = 5_000, interval = 2_000)

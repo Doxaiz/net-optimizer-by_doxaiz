@@ -65,6 +65,10 @@ import com.doxaiz.netoptimizer.core.net.BatteryHealth
 import com.doxaiz.netoptimizer.core.net.SpeedDiagnostics
 import com.doxaiz.netoptimizer.core.net.SpeedComparisonStatus
 import com.doxaiz.netoptimizer.core.net.SpeedHint
+import com.doxaiz.netoptimizer.core.net.NetworkConditionLevel
+import com.doxaiz.netoptimizer.core.net.NetworkConditionPolicy
+import com.doxaiz.netoptimizer.core.net.NetworkConditionReader
+import com.doxaiz.netoptimizer.core.net.NetworkConditions
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentRed
@@ -120,6 +124,8 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     var speedCancelled by remember { mutableStateOf(false) }
     var speedJob by remember { mutableStateOf<Job?>(null) }
     var speedComparisonClock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var networkConditions by remember { mutableStateOf<NetworkConditions?>(null) }
+    LaunchedEffect(section, details) { networkConditions = NetworkConditionReader.read(context) }
 
     val bench = remember { DnsBenchmark(context) }
     val keepAliveEngine = remember { KeepAliveEngine(context.applicationContext) }
@@ -367,6 +373,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                     }
                 }
             }
+            if (section == ToolsSection.TESTS) item { NetworkConditionsCard(networkConditions) }
             if (section == ToolsSection.DNS) item { PrivateDnsCard() }
             // Спидтест
             if (section == ToolsSection.TESTS) item {
@@ -664,6 +671,24 @@ private fun SignalHistoryCard(points: List<SignalObservation>, nowMs: Long) {
                 Text("Прошлое ← → сейчас · сверху −30, снизу −160 дБм. Разрывы — нет данных, большой перерыв или смена 4G/5G.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text("Снимки опроса примерно раз в 3 с, до 2 минут и только пока открыт этот раздел. Одна и та же запись модема может повторяться; устаревшие данные не рисуются, а если время модема неизвестно — свежесть не гарантирована. При выходе история очищается.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun NetworkConditionsCard(conditions: NetworkConditions?) {
+    val verdict = conditions?.let { NetworkConditionPolicy.verdict(it) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("УСЛОВИЯ СЕТИ ПО ДАННЫМ ANDROID", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (verdict == null) {
+                Text("Нет активной мобильной сети: Android не сообщает условия.", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Text(verdict.headline, style = MaterialTheme.typography.bodyMedium,
+                    color = if (verdict.level == NetworkConditionLevel.GOOD) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                verdict.details.forEach { Text("• " + it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            Text("Это флаги системы на момент открытия экрана, а не замер скорости, задержки или нагрузки от других приложений. Условия могут измениться в любой момент; приложение не переключает сеть и не меняет настройки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

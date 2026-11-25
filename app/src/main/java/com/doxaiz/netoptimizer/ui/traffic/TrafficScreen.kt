@@ -41,6 +41,10 @@ import com.doxaiz.netoptimizer.core.traffic.MobileRate
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadResult
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadSample
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparisonReportBuilder
+import com.doxaiz.netoptimizer.core.net.NetworkConditionLevel
+import com.doxaiz.netoptimizer.core.net.NetworkConditionPolicy
+import com.doxaiz.netoptimizer.core.net.NetworkConditionReader
+import com.doxaiz.netoptimizer.core.net.NetworkConditions
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparison
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadFailure
 import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
@@ -149,7 +153,14 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
     var rate by remember { mutableStateOf<MobileRate?>(null) }
     var history by remember { mutableStateOf<List<MobileRate>>(emptyList()) }
     var loadResult by remember { mutableStateOf<MobileLoadResult?>(null) }
+    var networkConditions by remember { mutableStateOf<NetworkConditions?>(null) }
+    val networkVerdict = networkConditions?.let { NetworkConditionPolicy.verdict(it) }
+    // A difference is only meaningful while Android still reports usable network conditions.
+    val reliableNetwork = networkVerdict?.level != NetworkConditionLevel.UNUSABLE
     val trafficListState = rememberLazyListState()
+    LaunchedEffect(loadResult, foreground) {
+        networkConditions = NetworkConditionReader.read(context)
+    }
     LaunchedEffect(loadResult) {
         // Bring the result into view only while the user is still looking at its card.
         if (loadResult != null && trafficListState.layoutInfo.visibleItemsInfo.any { it.index == 2 }) {
@@ -768,11 +779,19 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                     Text("ТЕКУЩАЯ ПЕРЕДАЧА ДАННЫХ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (rate != null) "↓ ${formatRate(rate!!.rxBytesPerSecond)}  ·  ↑ ${formatRate(rate!!.txBytesPerSecond)}" else "Нет данных", style = MaterialTheme.typography.titleMedium, color = if (rate != null) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (details) "Общие счётчики мобильных интерфейсов Android, не скорость отдельных приложений. Первое значение появляется после двух снимков; раздача может учитываться по-разному." else "Общий мобильный трафик телефона, не отдельных приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    networkVerdict?.let { verdict ->
+                        Text(verdict.headline, style = MaterialTheme.typography.bodySmall,
+                            color = if (verdict.level == NetworkConditionLevel.GOOD) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+                        if (details) verdict.details.forEach { line ->
+                            Text("• " + line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     if (loadMeasuring) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                         TextButton(onClick = { loadSequence++; loadJob?.cancel(); loadJob = null; loadMeasuring = false; loadResult = null }) { Text("Отменить замер нагрузки") }
                     } else {
                         OutlinedButton(onClick = {
+                            networkConditions = NetworkConditionReader.read(context)
                             val sequence = ++loadSequence
                             (loadResult as? MobileLoadResult.Success)?.let { previousLoad = it.sample }
                             loadMeasuring = true; loadResult = null
@@ -792,7 +811,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                             Text("За ${sample.durationMs / 1000} с: ↓ ${formatBytes(sample.received)} · ↑ ${formatBytes(sample.sent)}\nВ среднем: ↓ ${formatRate(sample.rxPerSecond)} · ↑ ${formatRate(sample.txPerSecond)}", style = MaterialTheme.typography.bodyMedium)
                             Text("Наибольшая средняя за короткий интервал: ↓ ${formatRate(sample.peakReceived.bytesPerSecond)} (${"%.1f".format(sample.peakReceived.durationMs / 1000.0)} с) · ↑ ${formatRate(sample.peakSent.bytesPerSecond)} (${"%.1f".format(sample.peakSent.durationMs / 1000.0)} с)", style = MaterialTheme.typography.bodySmall)
                             previousLoad?.let { before ->
-                                MobileLoadComparisonText(before, sample, maxOf(loadComparisonClock, SystemClock.elapsedRealtime()))
+                                MobileLoadComparisonText(before, sample, maxOf(loadComparisonClock, SystemClock.elapsedRealtime()), reliableNetwork)
                             }
                             Text("Пики приёма и отдачи могут приходиться на разные интервалы; это не мгновенная скорость. Если есть всплеск, попробуйте приостановить соответствующие загрузки или резервное копирование и повторить замер. Расход всех мобильных интерфейсов, не скорость тарифа или отдельного приложения. Разница замеров не доказывает причину; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -1062,8 +1081,9 @@ private fun LoadOptimizationCard(
 }
 
 @Composable
-private fun MobileLoadComparisonText(before: MobileLoadSample, after: MobileLoadSample, nowElapsedMs: Long) {
-    val report = MobileLoadComparisonReportBuilder.build(before, after, nowElapsedMs)
+private fun MobileLoadComparisonText(before: MobileLoadSample, after: MobileLoadSample, nowElapsedMs: Long,
+                                    reliableNetwork: Boolean) {
+    val report = MobileLoadComparisonReportBuilder.build(before, after, nowElapsedMs, reliableNetwork)
     Text(report.headline, style = MaterialTheme.typography.bodySmall,
         color = if (report.explanation.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
     if (report.explanation.isNotEmpty()) {

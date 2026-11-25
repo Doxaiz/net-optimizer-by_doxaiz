@@ -4,20 +4,22 @@ package com.doxaiz.netoptimizer.core.traffic
 internal data class MobileLoadComparisonReport(val headline: String, val explanation: String)
 
 internal object MobileLoadComparisonReportBuilder {
-    fun build(before: MobileLoadSample, after: MobileLoadSample, nowElapsedMs: Long): MobileLoadComparisonReport {
-        val difference = MobileLoadComparison.difference(before, after, nowElapsedMs)
+    fun build(before: MobileLoadSample, after: MobileLoadSample, nowElapsedMs: Long,
+              reliableNetwork: Boolean = true): MobileLoadComparisonReport {
+        val difference = MobileLoadComparison.difference(before, after, nowElapsedMs, reliableNetwork)
         if (difference != null) {
             return MobileLoadComparisonReport(
                 "Изменение средней передачи: ↓ ${signed(difference.rxBytesPerSecond)} · ↑ ${signed(difference.txBytesPerSecond)}",
                 "Разница доступна менее 10 минут после первого замера при совпадении сети. Это не доказательство причины или ускорения: счётчики общие, а одинаковая сеть не гарантирует непрерывную связь и одинаковые условия между замерами."
             )
         }
-        val reason = when (MobileLoadComparison.status(before, after, nowElapsedMs)) {
+        val reason = when (MobileLoadComparison.status(before, after, nowElapsedMs, reliableNetwork)) {
             MobileLoadComparisonStatus.DIFFERENT_NETWORK -> "мобильные сети различаются"
             MobileLoadComparisonStatus.COUNTERS_RESET -> "счётчики могли сброситься между замерами"
             MobileLoadComparisonStatus.EXPIRED -> "прошло не менее 10 минут после первого замера"
             MobileLoadComparisonStatus.INVALID_TIME -> "порядок времени недостоверен"
             MobileLoadComparisonStatus.INVALID_SAMPLE -> "один из замеров недостоверен"
+            MobileLoadComparisonStatus.UNRELIABLE_NETWORK -> "Android сообщает об ограничениях текущей сети"
             MobileLoadComparisonStatus.READY -> "нет данных"
         }
         return MobileLoadComparisonReport("Разница недоступна: $reason. Для сравнения повторите замеры.", "")
