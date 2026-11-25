@@ -52,7 +52,7 @@ class NetworkConditionTest {
 
     @Test fun congestionWordingDoesNotBlameAppsOrProveCausality() {
         val verdict = NetworkConditionPolicy.verdict(good.copy(notCongested = false))
-        val text = verdict.details.single { it.contains("перегруженной") }
+        val text = verdict.details.single { it.contains("NOT_CONGESTED отсутствует") }
         assertTrue(text.contains("не проверяет загрузку канала"))
         assertFalse(text.lowercase().contains("виноват"))
     }
