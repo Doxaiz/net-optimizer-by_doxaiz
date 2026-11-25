@@ -48,7 +48,13 @@ def reveal(label):
     raise RuntimeError("Not found: " + label)
 
 
-def wait_comparison(timeout=35):
+def scroll_sample_card(attempt):
+    # Several consecutive swipes in each direction are needed for a tall result card.
+    start_y, end_y = ((1750, 1100) if attempt % 8 < 4 else (1100, 1750))
+    adb("shell", "input", "swipe", "540", str(start_y), "540", str(end_y), "350")
+
+
+def wait_comparison(timeout=80):
     deadline = time.monotonic() + timeout
     attempts = 0
     while time.monotonic() < deadline:
@@ -56,15 +62,13 @@ def wait_comparison(timeout=35):
         for text in visible:
             if text.startswith("Изменение средней передачи:") or text.startswith("Разница недоступна:"):
                 return text
-        if attempts % 3 == 0:
-            start_y, end_y = ((1750, 1250) if attempts % 6 == 0 else (1250, 1750))
-            adb("shell", "input", "swipe", "540", str(start_y), "540", str(end_y), "350")
+        scroll_sample_card(attempts)
         attempts += 1
         time.sleep(1)
     raise RuntimeError("No comparison or incompatibility explanation visible")
 
 
-def wait_result(timeout=35):
+def wait_result(timeout=80):
     deadline = time.monotonic() + timeout
     attempts = 0
     failures = {"Для замера подключите мобильный интернет.", "Android не предоставил мобильные счётчики.",
@@ -74,9 +78,7 @@ def wait_result(timeout=35):
         for text in visible:
             if text in failures or (text.startswith("За ") and " с: ↓ " in text):
                 return text
-        if attempts % 4 == 0:
-            start_y, end_y = ((1750, 1250) if attempts % 8 == 0 else (1250, 1750))
-            adb("shell", "input", "swipe", "540", str(start_y), "540", str(end_y), "350")
+        scroll_sample_card(attempts)
         attempts += 1
         time.sleep(1)
     raise RuntimeError("No completed measurement")
