@@ -50,8 +50,9 @@ def reveal(label):
 
 def scroll_sample_card(attempt):
     # Several consecutive swipes in each direction are needed for a tall result card.
-    start_y, end_y = ((1750, 1100) if attempt % 8 < 4 else (1100, 1750))
-    adb("shell", "input", "swipe", "540", str(start_y), "540", str(end_y), "350")
+    w, ht = viewport()
+    start_y, end_y = ((.72, .45) if attempt % 8 < 4 else (.45, .72))
+    adb("shell", "input", "swipe", str(w // 2), str(int(ht * start_y)), str(w // 2), str(int(ht * end_y)), "350")
 
 
 def in_app():
@@ -80,15 +81,29 @@ def result_text(visible):
     return None
 
 
+def viewport():
+    sizes = []
+    for n in nodes():
+        m = re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", ""))
+        if m:
+            sizes.append(tuple(map(int, m.groups())))
+    if not sizes:
+        raise RuntimeError("No viewport")
+    return max(sizes, key=lambda p: p[0] * p[1])
+
+
 def scroll_to_load_card():
-    """The load card is the third item, so jump back to the top before tapping it."""
+    """The load card is the third item, so scroll back to the top before tapping it."""
+    w, ht = viewport()
     for _ in range(6):
-        adb("shell", "input", "swipe", "540", "700", "540", "2000", "250")
+        adb("shell", "input", "swipe", str(w // 2), str(int(ht * 0.3)), str(w // 2), str(int(ht * 0.85)), "300")
+        time.sleep(.4)
     time.sleep(1)
 
 
 def tap_on_screen(label):
     """Tap only when the label is fully inside the viewport; otherwise scroll to it."""
+    w, ht = viewport()
     for _ in range(10):
         for node in nodes():
             if node.attrib.get("text") != label:
@@ -97,13 +112,13 @@ def tap_on_screen(label):
             if not m:
                 continue
             x1, y1, x2, y2 = map(int, m.groups())
-            if y1 < 120 or y2 > 2280 or x2 <= x1 or y2 <= y1:
+            if y1 < int(ht * 0.12) or y2 > int(ht * 0.82) or x2 <= x1 or y2 <= y1:
                 break
             adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
             time.sleep(1)
             return True
-        adb("shell", "input", "swipe", "540", "1600", "540", "1100", "300")
-        time.sleep(.6)
+        adb("shell", "input", "swipe", str(w // 2), str(int(ht * 0.75)), str(w // 2), str(int(ht * 0.5)), "350")
+        time.sleep(.8)
     return False
 
 
