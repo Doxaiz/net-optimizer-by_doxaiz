@@ -80,26 +80,60 @@ def result_text(visible):
     return None
 
 
-def start_measurement(label="Измерить нагрузку за 10 секунд"):
-    """Return None when measuring started, or the final text of an instantly finished probe."""
+def scroll_to_load_card():
+    """The load card is the third item, so jump back to the top before tapping it."""
+    for _ in range(6):
+        adb("shell", "input", "swipe", "540", "700", "540", "2000", "250")
+    time.sleep(1)
+
+
+def tap_on_screen(label):
+    """Tap only when the label is fully inside the viewport; otherwise scroll to it."""
+    for _ in range(10):
+        for node in nodes():
+            if node.attrib.get("text") != label:
+                continue
+            m = re.fullmatch(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", node.attrib.get("bounds", ""))
+            if not m:
+                continue
+            x1, y1, x2, y2 = map(int, m.groups())
+            if y1 < 120 or y2 > 2280 or x2 <= x1 or y2 <= y1:
+                break
+            adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+            time.sleep(1)
+            return True
+        adb("shell", "input", "swipe", "540", "1600", "540", "1100", "300")
+        time.sleep(.6)
+    return False
+
+
+def measure(label="Измерить нагрузку за 10 секунд", allow_stale=False):
+    """Tap the button and report (started, finished_text).
+
+    A probe without a cellular network fails before the progress indicator can be
+    dumped, so an unchanged result text is only trusted when allow_stale is set.
+    """
     for _ in range(3):
-        reveal(label)
+        scroll_to_load_card()
         stale = result_text(texts())
-        if label in texts():
-            tap(label)
+        if not tap_on_screen(label):
+            continue
         for _ in range(6):
             time.sleep(1)
             visible = texts()
             if "Отменить замер нагрузки" in visible:
-                return None
+                return True, None
             finished = result_text(visible)
-            # The tap clears the previous result, so an unchanged text means it was not registered.
-            if finished and finished != stale:
-                # A probe without a cellular network fails before progress becomes visible.
-                return finished
+            if finished and (allow_stale or finished != stale):
+                return False, finished
         if not in_app():
             break
     raise RuntimeError("Measurement did not start; resumed=" + resumed_activity())
+
+
+def measure_live(label="Измерить нагрузку за 10 секунд", allow_stale=False):
+    started, result = measure(label, allow_stale)
+    return wait_result() if started else result
 
 
 def wait_comparison(timeout=80):
@@ -145,7 +179,7 @@ try:
     tap("Продолжить")
     tap("Трафик")
     keep_awake()
-    result = start_measurement() or wait_result()
+    result = measure_live()
     measured = result.startswith("За ")
     if measured:
         # Some emulator images keep the cellular interface and its counters after `svc data disable`.
@@ -167,20 +201,24 @@ try:
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
     keep_awake()
-    result = start_measurement() or wait_result()
-    print("Mobile counter measurement:", result)
+    # The emulated modem can take a while to come back, so retry before giving up.
+    for attempt in range(4):
+        result = measure_live(allow_stale=True)
+        print("Mobile counter measurement (attempt %d): %s" % (attempt + 1, result))
+        if result.startswith("За "):
+            break
+        if result != "Для замера подключите мобильный интернет.":
+            raise RuntimeError("Unexpected measurement result: " + result)
+        time.sleep(10)
     if result.startswith("За "):
         if "В среднем: ↓ " not in result:
             raise RuntimeError("Successful measurement lacks average")
-        if not measured:
-            measured = True
-            result = start_measurement() or wait_result()
-            print("Second mobile counter measurement:", result)
-        if measured and result.startswith("За "):
+        second = measure_live(allow_stale=True)
+        print("Second mobile counter measurement:", second)
+        if second.startswith("За "):
             print("Mobile load comparison:", wait_comparison())
-        elif result != "Для замера подключите мобильный интернет.":
-            print("::notice::Second mobile sample unavailable; comparison UI not verified: " + result)
-    # Counters and virtual connectivity vary by emulator; a failure is not a zero or success.
+        else:
+            print("::notice::Second mobile sample unavailable; comparison UI not verified: " + second)
     elif result == "Для замера подключите мобильный интернет.":
         # Print evidence instead of silently skipping the comparison scenario.
         networks = adb("shell", "dumpsys", "connectivity", check=False).split("NetworkAgentInfo")[1:4]
