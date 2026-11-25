@@ -47,6 +47,7 @@ class MobileLoadWindowTest {
         assertNull(MobileLoadWindow.result(samples().dropLast(1)))
         assertNull(MobileLoadWindow.result(samples().toMutableList().apply { this[0] = this[0].copy(rx = -1) }))
         assertNull(MobileLoadWindow.result(samples().toMutableList().apply { this[2] = this[2].copy(tx = -1) }))
+        assertNull(MobileLoadWindow.result(samples().map { it.copy(elapsedMs = it.elapsedMs - 20_000) }))
     }
 
     @Test fun neverBridgesNetworkChangesOrCounterResets() {

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import android.os.SystemClock
 import com.doxaiz.netoptimizer.core.shizuku.ShizukuManager
 import com.doxaiz.netoptimizer.core.net.CellularNetwork
 import com.doxaiz.netoptimizer.core.traffic.AppTraffic
@@ -39,6 +40,8 @@ import com.doxaiz.netoptimizer.core.traffic.StopTarget
 import com.doxaiz.netoptimizer.core.traffic.MobileRate
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadResult
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadSample
+import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparison
+import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparisonStatus
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadFailure
 import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
@@ -154,6 +157,18 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
         }
     }
     var previousLoad by remember { mutableStateOf<MobileLoadSample?>(null) }
+    var loadComparisonClock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(previousLoad, loadResult, foreground) {
+        loadComparisonClock = SystemClock.elapsedRealtime()
+        val firstTime = previousLoad?.last?.elapsedMs
+        if (foreground && firstTime != null && firstTime >= 0 && loadComparisonClock >= firstTime) {
+            val age = loadComparisonClock - firstTime
+            if (age < MobileLoadComparison.WINDOW_MS) {
+                delay(MobileLoadComparison.WINDOW_MS - age)
+                loadComparisonClock = SystemClock.elapsedRealtime()
+            }
+        }
+    }
     var loadMeasuring by remember { mutableStateOf(false) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
     var loadSequence by remember { mutableIntStateOf(0) }
@@ -780,6 +795,9 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                             val sample = result.sample
                             Text("За ${sample.durationMs / 1000} с: ↓ ${formatBytes(sample.received)} · ↑ ${formatBytes(sample.sent)}\nВ среднем: ↓ ${formatRate(sample.rxPerSecond)} · ↑ ${formatRate(sample.txPerSecond)}", style = MaterialTheme.typography.bodyMedium)
                             Text("Наибольшая средняя за короткий интервал: ↓ ${formatRate(sample.peakReceived.bytesPerSecond)} (${"%.1f".format(sample.peakReceived.durationMs / 1000.0)} с) · ↑ ${formatRate(sample.peakSent.bytesPerSecond)} (${"%.1f".format(sample.peakSent.durationMs / 1000.0)} с)", style = MaterialTheme.typography.bodySmall)
+                            previousLoad?.let { before ->
+                                MobileLoadComparisonText(before, sample, maxOf(loadComparisonClock, SystemClock.elapsedRealtime()))
+                            }
                             Text("Пики приёма и отдачи могут приходиться на разные интервалы; это не мгновенная скорость. Если есть всплеск, попробуйте приостановить соответствующие загрузки или резервное копирование и повторить замер. Расход всех мобильных интерфейсов, не скорость тарифа или отдельного приложения. Разница замеров не доказывает причину; раздача может учитываться по-разному.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         is MobileLoadResult.Failure -> Text(when (result.reason) {
@@ -1040,6 +1058,31 @@ private fun LoadOptimizationCard(
                 Text("Для сравнения скорости используйте два спидтеста в Инструменты → Замеры (до 15 МБ каждый). При сворачивании текущий замер отменяется; разница доступна менее 10 минут после первого замера, если сеть совпадает. Это не гарантирует непрерывность связи между замерами.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+@Composable
+private fun MobileLoadComparisonText(before: MobileLoadSample, after: MobileLoadSample, nowElapsedMs: Long) {
+    val status = MobileLoadComparison.status(before, after, nowElapsedMs)
+    val difference = MobileLoadComparison.difference(before, after, nowElapsedMs)
+    if (difference != null) {
+        fun signed(value: Double): String = when {
+            kotlin.math.abs(value) < 0.5 -> "≈0 Б/с"
+            value > 0 -> "+${formatRate(value)}"
+            else -> "−${formatRate(-value)}"
+        }
+        Text("Изменение средней передачи: ↓ ${signed(difference.rxBytesPerSecond)} · ↑ ${signed(difference.txBytesPerSecond)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        Text("Разница доступна менее 10 минут после первого замера при совпадении сети. Это не доказательство причины или ускорения: счётчики общие, а одинаковая сеть не гарантирует непрерывную связь и одинаковые условия между замерами.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        val reason = when (status) {
+            MobileLoadComparisonStatus.DIFFERENT_NETWORK -> "мобильные сети различаются"
+            MobileLoadComparisonStatus.COUNTERS_RESET -> "счётчики могли сброситься между замерами"
+            MobileLoadComparisonStatus.EXPIRED -> "прошло не менее 10 минут после первого замера"
+            MobileLoadComparisonStatus.INVALID_TIME -> "порядок времени недостоверен"
+            MobileLoadComparisonStatus.INVALID_SAMPLE -> "один из замеров недостоверен"
+            MobileLoadComparisonStatus.READY -> "нет данных"
+        }
+        Text("Разница недоступна: $reason. Для сравнения повторите замеры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

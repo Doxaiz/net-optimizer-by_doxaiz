@@ -48,6 +48,22 @@ def reveal(label):
     raise RuntimeError("Not found: " + label)
 
 
+def wait_comparison(timeout=35):
+    deadline = time.monotonic() + timeout
+    attempts = 0
+    while time.monotonic() < deadline:
+        visible = texts()
+        for text in visible:
+            if text.startswith("Изменение средней передачи:") or text.startswith("Разница недоступна:"):
+                return text
+        if attempts % 3 == 0:
+            start_y, end_y = ((1750, 1250) if attempts % 6 == 0 else (1250, 1750))
+            adb("shell", "input", "swipe", "540", str(start_y), "540", str(end_y), "350")
+        attempts += 1
+        time.sleep(1)
+    raise RuntimeError("No comparison or incompatibility explanation visible")
+
+
 def wait_result(timeout=35):
     deadline = time.monotonic() + timeout
     attempts = 0
@@ -102,6 +118,14 @@ try:
     if result.startswith("За "):
         if "В среднем: ↓ " not in result:
             raise RuntimeError("Successful measurement lacks average")
+        reveal("Измерить нагрузку за 10 секунд")
+        tap("Измерить нагрузку за 10 секунд")
+        time.sleep(2)
+        second = wait_result()
+        if second.startswith("За "):
+            print("Mobile load comparison:", wait_comparison())
+        else:
+            print("::notice::Second mobile sample unavailable; comparison UI not verified: " + second)
     # Counters and virtual connectivity vary by emulator; a failure is not a zero or success.
     elif result == "Для замера подключите мобильный интернет.":
         print("::notice::This emulator did not expose an active cellular network.")

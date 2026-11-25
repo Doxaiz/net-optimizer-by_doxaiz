@@ -9,7 +9,10 @@ internal data class MobileLoadSample(
     val received: Long,
     val sent: Long,
     val peakReceived: MobileLoadPeak,
-    val peakSent: MobileLoadPeak
+    val peakSent: MobileLoadPeak,
+    // Ephemeral local metadata, used only to check whether two samples can be compared.
+    val first: MobileCounters,
+    val last: MobileCounters
 ) {
     val rxPerSecond: Double get() = received.toDouble() * 1000.0 / durationMs
     val txPerSecond: Double get() = sent.toDouble() * 1000.0 / durationMs
@@ -22,7 +25,7 @@ internal object MobileLoadWindow {
     const val MAX_INTERVAL_MS = 4_000L
 
     fun result(samples: List<MobileCounters>): MobileLoadSample? {
-        if (samples.size != INTERVALS + 1 || samples.any { it.rx < 0 || it.tx < 0 }) return null
+        if (samples.size != INTERVALS + 1 || samples.any { it.rx < 0 || it.tx < 0 || it.elapsedMs < 0 }) return null
         for ((a, b) in samples.zipWithNext()) {
             val elapsed = b.elapsedMs - a.elapsedMs
             if (elapsed <= 0 || elapsed > MAX_INTERVAL_MS || a.networkId != b.networkId || b.rx < a.rx || b.tx < a.tx) return null
@@ -37,7 +40,7 @@ internal object MobileLoadWindow {
             MobileLoadPeak((bytes(b) - bytes(a)).toDouble() * 1000.0 / intervalMs, intervalMs)
         }.maxBy { it.bytesPerSecond }
         return MobileLoadSample(duration, last.rx - first.rx, last.tx - first.tx,
-            peak { it.rx }, peak { it.tx })
+            peak { it.rx }, peak { it.tx }, first, last)
     }
 }
 
