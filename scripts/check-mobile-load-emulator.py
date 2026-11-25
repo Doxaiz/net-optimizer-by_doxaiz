@@ -81,6 +81,12 @@ def result_text(visible):
     return None
 
 
+def notice(label, value):
+    """Surface results as annotations: job archives are not always retrievable."""
+    text = (label + ": " + value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print("::notice::" + text[:2500], flush=True)
+
+
 def viewport():
     sizes = []
     for n in nodes():
@@ -198,7 +204,7 @@ try:
     measured = result.startswith("За ")
     if measured:
         # Some emulator images keep the cellular interface and its counters after `svc data disable`.
-        print("::notice::Emulator kept mobile counters after disabling data; the no-network branch was not reproduced. Using this as the first sample: " + result)
+        notice("Emulator kept mobile counters after disabling data; the no-network branch was not reproduced", result)
     elif result != "Для замера подключите мобильный интернет.":
         raise RuntimeError("Unexpected offline measurement result: " + result)
     # Shortcuts select a historical sort but never grant usage access or open Settings.
@@ -219,7 +225,7 @@ try:
     # The emulated modem can take a while to come back, so retry before giving up.
     for attempt in range(4):
         result = measure_live(allow_stale=True)
-        print("Mobile counter measurement (attempt %d): %s" % (attempt + 1, result))
+        notice("Mobile counter measurement (attempt %d)" % (attempt + 1), result)
         if result.startswith("За "):
             break
         if result != "Для замера подключите мобильный интернет.":
@@ -229,16 +235,16 @@ try:
         if "В среднем: ↓ " not in result:
             raise RuntimeError("Successful measurement lacks average")
         second = measure_live(allow_stale=True)
-        print("Second mobile counter measurement:", second)
+        notice("Second mobile counter measurement", second)
         if second.startswith("За "):
-            print("Mobile load comparison:", wait_comparison())
+            notice("Mobile load comparison", wait_comparison())
         else:
-            print("::notice::Second mobile sample unavailable; comparison UI not verified: " + second)
+            notice("Second mobile sample unavailable; comparison UI not verified", second)
     elif result == "Для замера подключите мобильный интернет.":
         # Print evidence instead of silently skipping the comparison scenario.
         networks = adb("shell", "dumpsys", "connectivity", check=False).split("NetworkAgentInfo")[1:4]
-        print("::notice::This emulator did not expose an active cellular network; comparison UI not verified: "
-              + " | ".join(n.strip().splitlines()[0][:160] for n in networks if n.strip()))
+        notice("This emulator did not expose an active cellular network; comparison UI not verified",
+               " | ".join(n.strip().splitlines()[0][:160] for n in networks if n.strip()))
 finally:
     adb("shell", "svc", "data", "enable", check=False)
     adb("shell", "svc", "wifi", "enable", check=False)
