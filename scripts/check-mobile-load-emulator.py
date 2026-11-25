@@ -81,6 +81,18 @@ try:
     result = wait_result()
     if result != "Для замера подключите мобильный интернет.":
         raise RuntimeError("Offline measurement did not report unavailable: " + result)
+    # Shortcuts select a historical sort but never grant usage access or open Settings.
+    for button, selected in (("История скачивания ↓", "Сортировка истории: скачивание"),
+                             ("История отдачи ↑", "Сортировка истории: отдача")):
+        reveal(button)
+        tap(button)
+        reveal(selected)
+        reveal("Нужен доступ к истории использования приложений.")
+        if "ignore" not in adb("shell", "appops", "get", h["PACKAGE"], "GET_USAGE_STATS"):
+            raise RuntimeError("History shortcut unexpectedly changed usage access")
+        if not any(n.attrib.get("package") == h["PACKAGE"] for n in nodes()):
+            raise RuntimeError("History shortcut unexpectedly left the app")
+    print("Direction shortcuts select history without changing permissions")
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
     reveal("Измерить нагрузку за 10 секунд")

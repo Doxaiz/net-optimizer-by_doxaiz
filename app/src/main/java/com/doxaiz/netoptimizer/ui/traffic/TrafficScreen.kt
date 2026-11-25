@@ -76,6 +76,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+// The history card follows the title, optimization card and current-traffic card.
+private const val TRAFFIC_HISTORY_CARD_INDEX = 3
+
 private class StopHalted(message: String) : Exception(message)
 
 @Composable
@@ -791,13 +794,30 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         TrafficGraph(history)
                         Text("Приём — голубой · отдача — фиолетовый; последние до 30 снимков", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Text("Проверить историю за выбранный период (не текущую активность):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = {
+                        trafficSort = TrafficSort.RECEIVED
+                        filter = "all"
+                        scope.launch { trafficListState.scrollToItem(TRAFFIC_HISTORY_CARD_INDEX) }
+                    }, enabled = !loadMeasuring, modifier = Modifier.fillMaxWidth()) { Text("История скачивания ↓") }
+                    OutlinedButton(onClick = {
+                        trafficSort = TrafficSort.SENT
+                        filter = "all"
+                        scope.launch { trafficListState.scrollToItem(TRAFFIC_HISTORY_CARD_INDEX) }
+                    }, enabled = !loadMeasuring, modifier = Modifier.fillMaxWidth()) { Text("История отдачи ↑") }
                 }
             }
         }
-        item {
+        item(key = "traffic-history") {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("РАСХОД МОБИЛЬНЫХ ДАННЫХ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Сортировка истории: " + when (trafficSort) {
+                        TrafficSort.TOTAL -> "общий расход"
+                        TrafficSort.RECEIVED -> "скачивание"
+                        TrafficSort.SENT -> "отдача"
+                        TrafficSort.OUTSIDE_FOREGROUND -> "условно фон"
+                    }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TrafficPeriod.entries.forEach { choice ->
                             FilterChip(selected = period == choice, onClick = { period = choice }, label = { Text(choice.label) })
