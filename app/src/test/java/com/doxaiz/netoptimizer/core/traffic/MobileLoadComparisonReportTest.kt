@@ -31,7 +31,7 @@ class MobileLoadComparisonReportTest {
         val network = MobileLoadComparisonReportBuilder.build(before, otherNetwork, 22_000)
         assertTrue(network.headline.startsWith("Разница недоступна: мобильные сети различаются"))
         assertEquals("", network.explanation)
-        val expired = MobileLoadComparisonReportBuilder.build(before, sample(12_000), 611_000)
+        val expired = MobileLoadComparisonReportBuilder.build(before, sample(12_000, rx = 3_000, tx = 1_000), 611_000)
         assertTrue(expired.headline.startsWith("Разница недоступна: прошло не менее 10 минут"))
         val reset = MobileLoadComparisonReportBuilder.build(before, sample(12_000, rx = 1), 22_000)
         assertTrue(reset.headline.startsWith("Разница недоступна: счётчики могли сброситься"))

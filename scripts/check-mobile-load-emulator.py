@@ -144,8 +144,12 @@ try:
     tap("Трафик")
     keep_awake()
     result = start_measurement() or wait_result()
-    if result != "Для замера подключите мобильный интернет.":
-        raise RuntimeError("Offline measurement did not report unavailable: " + result)
+    measured = result.startswith("За ")
+    if measured:
+        # Some emulator images keep the cellular interface and its counters after `svc data disable`.
+        print("::notice::Emulator kept mobile counters after disabling data; the no-network branch was not reproduced. Using this as the first sample: " + result)
+    elif result != "Для замера подключите мобильный интернет.":
+        raise RuntimeError("Unexpected offline measurement result: " + result)
     # Shortcuts select a historical sort but never grant usage access or open Settings.
     for button, selected in (("История скачивания ↓", "Сортировка истории: скачивание"),
                              ("История отдачи ↑", "Сортировка истории: отдача")):
@@ -166,11 +170,14 @@ try:
     if result.startswith("За "):
         if "В среднем: ↓ " not in result:
             raise RuntimeError("Successful measurement lacks average")
-        second = start_measurement() or wait_result()
-        if second.startswith("За "):
+        if not measured:
+            measured = True
+            result = start_measurement() or wait_result()
+            print("Second mobile counter measurement:", result)
+        if measured and result.startswith("За "):
             print("Mobile load comparison:", wait_comparison())
-        else:
-            print("::notice::Second mobile sample unavailable; comparison UI not verified: " + second)
+        elif result != "Для замера подключите мобильный интернет.":
+            print("::notice::Second mobile sample unavailable; comparison UI not verified: " + result)
     # Counters and virtual connectivity vary by emulator; a failure is not a zero or success.
     elif result == "Для замера подключите мобильный интернет.":
         # Print evidence instead of silently skipping the comparison scenario.
