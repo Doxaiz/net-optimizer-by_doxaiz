@@ -69,16 +69,35 @@ def keep_awake():
     adb("shell", "wm", "dismiss-keyguard", check=False)
 
 
+FAILURES = {"Для замера подключите мобильный интернет.", "Android не предоставил мобильные счётчики.",
+            "Сеть изменилась или её нельзя проверить. Повторите замер.", "Замер прерван или счётчики сброшены. Повторите."}
+
+
+def result_text(visible):
+    for text in visible:
+        if text in FAILURES or (text.startswith("За ") and " с: ↓ " in text):
+            return text
+    return None
+
+
 def start_measurement(label="Измерить нагрузку за 10 секунд"):
-    # A swipe can miss its target, so confirm that measuring actually started.
+    """Return None when measuring started, or the final text of an instantly finished probe."""
     for _ in range(3):
         reveal(label)
-        tap(label)
-        for _ in range(4):
-            if "Отменить замер нагрузки" in texts():
-                return
+        if label in texts():
+            tap(label)
+        for _ in range(6):
             time.sleep(1)
-    raise RuntimeError("Measurement did not start; the screen may have left the foreground")
+            visible = texts()
+            if "Отменить замер нагрузки" in visible:
+                return None
+            finished = result_text(visible)
+            if finished:
+                # A probe without a cellular network fails before progress becomes visible.
+                return finished
+        if not in_app():
+            break
+    raise RuntimeError("Measurement did not start; resumed=" + resumed_activity())
 
 
 def wait_comparison(timeout=80):
@@ -100,13 +119,11 @@ def wait_comparison(timeout=80):
 def wait_result(timeout=80):
     deadline = time.monotonic() + timeout
     attempts = 0
-    failures = {"Для замера подключите мобильный интернет.", "Android не предоставил мобильные счётчики.",
-                "Сеть изменилась или её нельзя проверить. Повторите замер.", "Замер прерван или счётчики сброшены. Повторите."}
     while time.monotonic() < deadline:
         visible = texts()
-        for text in visible:
-            if text in failures or (text.startswith("За ") and " с: ↓ " in text):
-                return text
+        finished = result_text(visible)
+        if finished:
+            return finished
         if not in_app():
             raise RuntimeError("App left the foreground while waiting for the measurement; resumed=" + resumed_activity())
         scroll_sample_card(attempts)
@@ -126,8 +143,7 @@ try:
     tap("Продолжить")
     tap("Трафик")
     keep_awake()
-    start_measurement()
-    result = wait_result()
+    result = start_measurement() or wait_result()
     if result != "Для замера подключите мобильный интернет.":
         raise RuntimeError("Offline measurement did not report unavailable: " + result)
     # Shortcuts select a historical sort but never grant usage access or open Settings.
@@ -145,21 +161,22 @@ try:
     adb("shell", "svc", "data", "enable")
     time.sleep(10)
     keep_awake()
-    start_measurement()
-    result = wait_result()
+    result = start_measurement() or wait_result()
     print("Mobile counter measurement:", result)
     if result.startswith("За "):
         if "В среднем: ↓ " not in result:
             raise RuntimeError("Successful measurement lacks average")
-        start_measurement()
-        second = wait_result()
+        second = start_measurement() or wait_result()
         if second.startswith("За "):
             print("Mobile load comparison:", wait_comparison())
         else:
             print("::notice::Second mobile sample unavailable; comparison UI not verified: " + second)
     # Counters and virtual connectivity vary by emulator; a failure is not a zero or success.
     elif result == "Для замера подключите мобильный интернет.":
-        print("::notice::This emulator did not expose an active cellular network.")
+        # Print evidence instead of silently skipping the comparison scenario.
+        networks = adb("shell", "dumpsys", "connectivity", check=False).split("NetworkAgentInfo")[1:4]
+        print("::notice::This emulator did not expose an active cellular network; comparison UI not verified: "
+              + " | ".join(n.strip().splitlines()[0][:160] for n in networks if n.strip()))
 finally:
     adb("shell", "svc", "data", "enable", check=False)
     adb("shell", "svc", "wifi", "enable", check=False)

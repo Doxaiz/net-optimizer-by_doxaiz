@@ -40,8 +40,8 @@ import com.doxaiz.netoptimizer.core.traffic.StopTarget
 import com.doxaiz.netoptimizer.core.traffic.MobileRate
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadResult
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadSample
+import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparisonReportBuilder
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparison
-import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparisonStatus
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadFailure
 import com.doxaiz.netoptimizer.core.traffic.TrafficMonitor
 import com.doxaiz.netoptimizer.core.traffic.TrafficSummary
@@ -1063,26 +1063,11 @@ private fun LoadOptimizationCard(
 
 @Composable
 private fun MobileLoadComparisonText(before: MobileLoadSample, after: MobileLoadSample, nowElapsedMs: Long) {
-    val status = MobileLoadComparison.status(before, after, nowElapsedMs)
-    val difference = MobileLoadComparison.difference(before, after, nowElapsedMs)
-    if (difference != null) {
-        fun signed(value: Double): String = when {
-            kotlin.math.abs(value) < 0.5 -> "≈0 Б/с"
-            value > 0 -> "+${formatRate(value)}"
-            else -> "−${formatRate(-value)}"
-        }
-        Text("Изменение средней передачи: ↓ ${signed(difference.rxBytesPerSecond)} · ↑ ${signed(difference.txBytesPerSecond)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-        Text("Разница доступна менее 10 минут после первого замера при совпадении сети. Это не доказательство причины или ускорения: счётчики общие, а одинаковая сеть не гарантирует непрерывную связь и одинаковые условия между замерами.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
-        val reason = when (status) {
-            MobileLoadComparisonStatus.DIFFERENT_NETWORK -> "мобильные сети различаются"
-            MobileLoadComparisonStatus.COUNTERS_RESET -> "счётчики могли сброситься между замерами"
-            MobileLoadComparisonStatus.EXPIRED -> "прошло не менее 10 минут после первого замера"
-            MobileLoadComparisonStatus.INVALID_TIME -> "порядок времени недостоверен"
-            MobileLoadComparisonStatus.INVALID_SAMPLE -> "один из замеров недостоверен"
-            MobileLoadComparisonStatus.READY -> "нет данных"
-        }
-        Text("Разница недоступна: $reason. Для сравнения повторите замеры.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val report = MobileLoadComparisonReportBuilder.build(before, after, nowElapsedMs)
+    Text(report.headline, style = MaterialTheme.typography.bodySmall,
+        color = if (report.explanation.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+    if (report.explanation.isNotEmpty()) {
+        Text(report.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
