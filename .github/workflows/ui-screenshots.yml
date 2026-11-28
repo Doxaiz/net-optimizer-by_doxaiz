@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ui-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   capture:
     runs-on: ubuntu-latest
@@ -57,12 +61,16 @@ jobs:
           path: ui-screenshots
           if-no-files-found: warn
       - name: Publish screenshots for review
-        if: always()
         run: |
-          if [ -z "$(ls -A ui-screenshots 2>/dev/null)" ]; then echo "nothing to publish"; exit 0; fi
+          if [ -z "$(ls -A ui-screenshots 2>/dev/null)" ]; then echo "nothing to publish"; exit 1; fi
           git config user.name "screenshot bot"
           git config user.email "actions@users.noreply.github.com"
-          git add -f ui-screenshots || echo "nothing added"
+          git fetch origin "${GITHUB_REF_NAME}"
+          if ! git diff --quiet HEAD FETCH_HEAD -- app scripts/capture-ui-screenshots.py .github/workflows/ui-screenshots.yml .github/actions; then
+            echo "UI sources changed after this capture; skipping stale screenshots"
+            exit 0
+          fi
+          git add -f ui-screenshots
           git diff --cached --quiet || git commit -q -m "Publish UI screenshots for review [skip ci]"
-          git pull --rebase -q -X ours origin ${GITHUB_REF_NAME} || echo "rebase skipped"
-          git push origin HEAD:${GITHUB_REF_NAME} || echo "push failed"
+          git rebase -q -X theirs FETCH_HEAD
+          git push origin HEAD:${GITHUB_REF_NAME}

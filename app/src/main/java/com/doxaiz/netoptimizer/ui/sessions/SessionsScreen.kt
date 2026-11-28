@@ -117,7 +117,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
         item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(when (state.phase) {
                         SessionPhase.RESTORING -> "ВОССТАНОВЛЕНИЕ"
@@ -163,7 +163,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
             if (a != null && b != null) ComparisonCard(a, b)
         }
         if (detail != null) item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("ДЕТАЛИ СЕССИИ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("${detail.name} · ${sessionDate(detail.timestamp)}", style = MaterialTheme.typography.titleMedium)
@@ -251,7 +251,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
 @Composable
 private fun ComparisonCard(a: SessionEntity, b: SessionEntity) {
     val delta = SessionInsights.latencyDifference(a.avgPingMs, b.avgPingMs)
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("СРАВНЕНИЕ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text("1 · ${sessionDate(a.timestamp)} · ${a.mode}: ${ms(a.avgPingMs)} · ${percent(a.lossPercent)} неудачных", style = MaterialTheme.typography.bodyMedium)
