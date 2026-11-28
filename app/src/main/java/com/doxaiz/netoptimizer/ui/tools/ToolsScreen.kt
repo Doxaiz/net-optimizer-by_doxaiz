@@ -382,9 +382,14 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
             if (section == ToolsSection.DNS) item { PrivateDnsCard() }
             // Спидтест
             if (section == ToolsSection.TESTS) item {
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text("Спидтест", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                DoxaizCard(accent = if (speed?.downloadMbps != null) AccentCyan else null) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Спидтест", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            StatusPill(
+                                if (speedTesting) "Идёт тест" else if (speed?.downloadMbps != null) "Есть результат" else "Нет данных",
+                                if (speedTesting) PillTone.WARNING else if (speed?.downloadMbps != null) PillTone.GOOD else PillTone.NEUTRAL
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         Text(
                             speed?.downloadMbps?.let { "%.1f Мбит/с".format(it) } ?: "Нет данных",
@@ -450,7 +455,6 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                         if (details && before != null && after != null) {
                             SpeedComparison(before, after, maxOf(speedComparisonClock, SystemClock.elapsedRealtime()), onClear = { previousSpeed = null })
                         }
-                    }
                 }
             }
             if (section == ToolsSection.TESTS && details) item {
