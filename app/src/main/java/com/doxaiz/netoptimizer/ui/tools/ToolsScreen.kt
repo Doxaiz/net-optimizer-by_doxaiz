@@ -259,7 +259,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // Радар
             if (section == ToolsSection.SIGNAL) item {
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Живой радар сигнала", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
@@ -298,7 +298,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
             }
             // Стабилизация 4G/5G
             if (section == ToolsSection.SIGNAL && details) item {
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Стабилизация 4G / 5G", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Тип сети выбирается вручную в настройках телефона: обычно доступны предпочтение 4G или автоматический 5G/4G с резервными сетями. Доступные варианты зависят от устройства и оператора; лучший режим нужно проверить замерами.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -325,7 +325,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
             }
             // DNS
             if (section == ToolsSection.DNS) item {
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Бенчмарк DNS", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
@@ -382,7 +382,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
             if (section == ToolsSection.DNS) item { PrivateDnsCard() }
             // Спидтест
             if (section == ToolsSection.TESTS) item {
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Спидтест", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
@@ -454,7 +454,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                 }
             }
             if (section == ToolsSection.TESTS && details) item {
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Своя цель", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Укажите IP-адрес или домен и открытый TCP-порт. Адрес без https:// и пути.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -496,7 +496,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
             }
             // Пинг игр
             if (section == ToolsSection.TESTS && details) item {
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(14.dp)) {
                         Text("TCP-задержка сайтов игр и сервисов (не игровых серверов)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
@@ -545,7 +545,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
             // USB-модем
             if (section == ToolsSection.USB) item {
                 val profile = CarrierProfiles.find("25002")
-                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(14.dp)) {
                         Text("USB-модем для ПК (Windows 10/11)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
@@ -649,7 +649,7 @@ private fun SignalHistoryCard(points: List<SignalObservation>, nowMs: Long) {
     val ageSeconds = newest?.let { ((nowMs - it.atMs).coerceAtLeast(0) / 1000) }
     val lineColor = MaterialTheme.colorScheme.primary
     val gridColor = MaterialTheme.colorScheme.outlineVariant
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("ДИНАМИКА СИГНАЛА", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (valid.isEmpty()) {
@@ -729,7 +729,7 @@ private fun BatteryStatusCard(signal: SignalState, nowMs: Long) {
     val battery = signal.battery.takeIf { fresh }
     val percent = battery?.percent
     val temperature = battery?.temperatureTenths
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text("БАТАРЕЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Заряд: ${percent?.let { "$it%" } ?: "нет свежих данных"}",
@@ -783,7 +783,7 @@ private fun PrivateDnsCard() {
     var copied by remember { mutableStateOf(false) }
     var settingsError by remember { mutableStateOf(false) }
     val selected = PrivateDns.providers.firstOrNull { it.hostname == PrivateDns.hostname(host) }
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("ПЕРСОНАЛЬНЫЙ DNS ANDROID", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Без VPN: выберите провайдера или введите своё имя сервера DNS-over-TLS. Изменение выполняется вами в настройках Android, приложение DNS не подключает и не проверяет.", style = MaterialTheme.typography.bodySmall)
