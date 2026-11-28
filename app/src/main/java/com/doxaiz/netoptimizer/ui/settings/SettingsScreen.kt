@@ -1,9 +1,11 @@
 package com.doxaiz.netoptimizer.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -45,10 +47,11 @@ fun SettingsScreen(
     LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("НАСТРОЙКИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text("Настройки Doxaiz", style = MaterialTheme.typography.headlineSmall)
+            Text("Настройки Doxaiz", style = MaterialTheme.typography.headlineMedium)
+            Text("Вид интерфейса, оформление, доступы и диагностика.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Вид приложения", style = MaterialTheme.typography.titleMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -62,7 +65,7 @@ fun SettingsScreen(
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Оформление", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
@@ -87,7 +90,7 @@ fun SettingsScreen(
             }
         }
         if (interfaceMode == InterfaceMode.EXPERT) item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Фоновые функции", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Автосценарии и оверлей пока недоступны. Приложение не отправляет push-уведомления.", style = MaterialTheme.typography.bodySmall)
@@ -95,7 +98,7 @@ fun SettingsScreen(
             }
         }
         if (interfaceMode == InterfaceMode.EXPERT) item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Доступ к системе · Shizuku", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
@@ -137,7 +140,7 @@ fun SettingsScreen(
             }
         }
         if (interfaceMode == InterfaceMode.EXPERT) item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Разрешения", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Сигнал и сота требуют доступа к местоположению. Разрешения необязательны и управляются в Android.", style = MaterialTheme.typography.bodySmall)
@@ -156,7 +159,7 @@ fun SettingsScreen(
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) { Diagnostics() }
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Diagnostics() }
         }
         item {
             Text(

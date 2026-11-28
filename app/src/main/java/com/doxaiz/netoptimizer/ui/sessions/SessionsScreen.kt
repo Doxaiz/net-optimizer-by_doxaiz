@@ -2,10 +2,12 @@ package com.doxaiz.netoptimizer.ui.sessions
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
@@ -110,11 +112,12 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
     LazyColumn(modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("СЕССИИ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Text("История соединения", style = MaterialTheme.typography.headlineSmall)
+            Text("История соединения", style = MaterialTheme.typography.headlineMedium)
+            Text("Замеры задержки с паузами; сравнение доступно для двух сохранённых сессий.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
         item {
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(when (state.phase) {
                         SessionPhase.RESTORING -> "ВОССТАНОВЛЕНИЕ"
@@ -160,7 +163,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
             if (a != null && b != null) ComparisonCard(a, b)
         }
         if (detail != null) item {
-            Card(Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("ДЕТАЛИ СЕССИИ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("${detail.name} · ${sessionDate(detail.timestamp)}", style = MaterialTheme.typography.titleMedium)
@@ -248,7 +251,7 @@ fun SessionsScreen(modifier: Modifier = Modifier, controller: SessionController,
 @Composable
 private fun ComparisonCard(a: SessionEntity, b: SessionEntity) {
     val delta = SessionInsights.latencyDifference(a.avgPingMs, b.avgPingMs)
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("СРАВНЕНИЕ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Text("1 · ${sessionDate(a.timestamp)} · ${a.mode}: ${ms(a.avgPingMs)} · ${percent(a.lossPercent)} неудачных", style = MaterialTheme.typography.bodyMedium)
