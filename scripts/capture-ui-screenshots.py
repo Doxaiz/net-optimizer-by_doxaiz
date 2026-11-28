@@ -35,9 +35,10 @@ try:
     tap("Инструменты")
     time.sleep(3)
     shot("03-tools")
-    adb("shell", "input", "swipe", "540", "1500", "540", "600", "900")
-    time.sleep(2)
-    shot("04-tools-scrolled")
+    for i in range(1, 4):
+        adb("shell", "input", "swipe", "540", "1500", "540", "600", "900")
+        time.sleep(2)
+        shot("04-tools-scroll-%d" % i)
     tap("Трафик")
     time.sleep(3)
     shot("05-traffic")

@@ -8,6 +8,18 @@
 </p>
 
 <p align="center">
+  <img src="ui-screenshots/02-home.png" alt="Главный экран: состояние мобильной сети" width="24%">
+  <img src="ui-screenshots/03-tools.png" alt="Инструменты: радар сигнала и условия сети" width="24%">
+  <img src="ui-screenshots/05-traffic.png" alt="Трафик: снижение нагрузки и замеры" width="24%">
+  <img src="ui-screenshots/07-sessions.png" alt="Сессии: ручной замер задержки" width="24%">
+</p>
+<p align="center">
+  <sub>Снимки экрана сделаны на эмуляторе Android 14 (API 34), а не на физическом телефоне:
+  там нет реальной соты, поэтому сигнал отображается как «Сигнал недоступен».</sub>
+</p>
+
+
+<p align="center">
   <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Android-12%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 12 и новее"></a>
   <a href="https://github.com/Doxaiz/net-optimizer-by_doxaiz/releases/latest"><img src="https://img.shields.io/badge/Релиз-1.0.12-00c6d7?style=flat-square" alt="Релиз 1.0.12"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-MIT-9d80ff?style=flat-square" alt="Лицензия MIT"></a>
