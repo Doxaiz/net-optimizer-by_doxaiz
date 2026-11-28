@@ -7,6 +7,8 @@ on:
     paths:
       - 'app/**'
       - 'scripts/capture-ui-screenshots.py'
+      - 'scripts/audit-release-emulator.py'
+      - 'scripts/shrink-screenshots.py'
       - '.github/workflows/ui-screenshots.yml'
       - '.github/actions/**' 
 
@@ -38,6 +40,8 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Clear previous screenshots
+        run: rm -f ui-screenshots/*.png
       - name: Capture screens on a disposable emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -66,11 +70,11 @@ jobs:
           git config user.name "screenshot bot"
           git config user.email "actions@users.noreply.github.com"
           git fetch origin "${GITHUB_REF_NAME}"
-          if ! git diff --quiet HEAD FETCH_HEAD -- app scripts/capture-ui-screenshots.py .github/workflows/ui-screenshots.yml .github/actions; then
+          if ! git diff --quiet HEAD FETCH_HEAD -- app scripts/capture-ui-screenshots.py scripts/audit-release-emulator.py scripts/shrink-screenshots.py .github/workflows/ui-screenshots.yml .github/actions; then
             echo "UI sources changed after this capture; skipping stale screenshots"
             exit 0
           fi
-          git add -f ui-screenshots
+          git add -A -f -- ui-screenshots
           git diff --cached --quiet || git commit -q -m "Publish UI screenshots for review [skip ci]"
           git rebase -q -X theirs FETCH_HEAD
           git push origin HEAD:${GITHUB_REF_NAME}
