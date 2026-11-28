@@ -373,7 +373,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
                     }
                 }
             }
-            if (section == ToolsSection.TESTS) item { NetworkConditionsCard(networkConditions) }
+            if (section == ToolsSection.TESTS) item { NetworkConditionsCard(networkConditions) { networkConditions = NetworkConditionReader.read(context) } }
             if (section == ToolsSection.DNS) item { PrivateDnsCard() }
             // Спидтест
             if (section == ToolsSection.TESTS) item {
@@ -676,7 +676,7 @@ private fun SignalHistoryCard(points: List<SignalObservation>, nowMs: Long) {
 }
 
 @Composable
-private fun NetworkConditionsCard(conditions: NetworkConditions?) {
+private fun NetworkConditionsCard(conditions: NetworkConditions?, onRefresh: () -> Unit) {
     val verdict = conditions?.let { NetworkConditionPolicy.verdict(it) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -688,7 +688,8 @@ private fun NetworkConditionsCard(conditions: NetworkConditions?) {
                     color = if (verdict.level == NetworkConditionLevel.GOOD) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                 verdict.details.forEach { Text("• " + it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            Text("Это флаги системы на момент открытия экрана, а не замер скорости, задержки или нагрузки от других приложений. Условия могут измениться в любой момент; приложение не переключает сеть и не меняет настройки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Это флаги системы на момент последнего обновления, а не замер скорости, задержки или нагрузки от других приложений. Условия могут измениться в любой момент; приложение не переключает сеть и не меняет настройки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Обновить условия сети") }
         }
     }
 }
