@@ -6,7 +6,7 @@ on:
     branches: [arena/47e3024f-net-optimizer-by-doxaiz]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   capture:
@@ -39,9 +39,24 @@ jobs:
             adb shell wm size 1080x2400
             adb shell wm density 420
             AUDIT_DISPOSABLE_EMULATOR=yes SHOT_DIR=ui-screenshots python3 scripts/capture-ui-screenshots.py app/build/outputs/apk/debug/app-debug.apk
-      - uses: actions/upload-artifact@v4
+      - name: Shrink screenshots for review
+        if: always()
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 scripts/shrink-screenshots.py ui-screenshots
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ui-screenshots
           path: ui-screenshots
           if-no-files-found: warn
+      - name: Publish screenshots for review
+        if: always()
+        run: |
+          if [ -z "$(ls -A ui-screenshots 2>/dev/null)" ]; then echo "nothing to publish"; exit 0; fi
+          git config user.name "screenshot bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f ui-screenshots
+          git diff --cached --quiet || git commit -q -m "Publish UI screenshots for review [skip ci]"
+          git push origin HEAD:${GITHUB_REF_NAME}

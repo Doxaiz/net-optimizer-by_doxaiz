@@ -24,3 +24,4 @@ signing.properties
 *.log
 __pycache__/
 *.py[cod]
+ui-screenshots/
