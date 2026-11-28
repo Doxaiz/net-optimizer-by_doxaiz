@@ -675,6 +675,11 @@ private fun SignalHistoryCard(points: List<SignalObservation>, nowMs: Long) {
     }
 }
 
+/** Test-only entry point so instrumentation can render fixed capability sets. */
+@Composable
+internal fun NetworkConditionsCardForTest(conditions: NetworkConditions, onRefresh: () -> Unit) =
+    NetworkConditionsCard(conditions, onRefresh)
+
 @Composable
 private fun NetworkConditionsCard(conditions: NetworkConditions?, onRefresh: () -> Unit) {
     val verdict = conditions?.let { NetworkConditionPolicy.verdict(it) }
