@@ -35,23 +35,30 @@ try:
     tap("Инструменты")
     time.sleep(3)
     shot("03-tools")
-    for i in range(1, 4):
+    for i in range(1, 3):
         adb("shell", "input", "swipe", "540", "1500", "540", "600", "900")
         time.sleep(2)
         shot("04-tools-scroll-%d" % i)
+    tap("Замеры")
+    time.sleep(3)
+    shot("05-tools-tests")
+    for i in range(1, 4):
+        adb("shell", "input", "swipe", "540", "1500", "540", "600", "900")
+        time.sleep(2)
+        shot("05-tools-tests-scroll-%d" % i)
     tap("Трафик")
     time.sleep(3)
-    shot("05-traffic")
+    shot("06-traffic")
     for _ in range(2):
         adb("shell", "input", "swipe", "540", "1500", "540", "600", "900")
         time.sleep(1)
     time.sleep(1)
-    shot("06-traffic-history")
+    shot("07-traffic-history")
     tap("Сессии")
     time.sleep(3)
-    shot("07-sessions")
+    shot("08-sessions")
     tap("Настройки")
     time.sleep(3)
-    shot("08-settings")
+    shot("09-settings")
 finally:
     pass

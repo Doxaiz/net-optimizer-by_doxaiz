@@ -10,8 +10,8 @@
 <p align="center">
   <img src="ui-screenshots/02-home.png" alt="Главный экран: состояние мобильной сети" width="24%">
   <img src="ui-screenshots/03-tools.png" alt="Инструменты: радар сигнала и условия сети" width="24%">
-  <img src="ui-screenshots/05-traffic.png" alt="Трафик: снижение нагрузки и замеры" width="24%">
-  <img src="ui-screenshots/07-sessions.png" alt="Сессии: ручной замер задержки" width="24%">
+  <img src="ui-screenshots/06-traffic.png" alt="Трафик: снижение нагрузки и замеры" width="24%">
+  <img src="ui-screenshots/08-sessions.png" alt="Сессии: ручной замер задержки" width="24%">
 </p>
 <p align="center">
   <sub>Снимки экрана сделаны на эмуляторе Android 14 (API 34), а не на физическом телефоне:
