@@ -4,6 +4,11 @@ on:
   workflow_dispatch:
   push:
     branches: [arena/47e3024f-net-optimizer-by-doxaiz]
+    paths:
+      - 'app/**'
+      - 'scripts/capture-ui-screenshots.py'
+      - '.github/workflows/ui-screenshots.yml'
+      - '.github/actions/**' 
 
 permissions:
   contents: write
