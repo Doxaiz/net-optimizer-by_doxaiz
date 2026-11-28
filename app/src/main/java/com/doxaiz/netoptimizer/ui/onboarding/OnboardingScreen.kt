@@ -1,5 +1,7 @@
 package com.doxaiz.netoptimizer.ui.onboarding
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -92,7 +94,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
                 Text("Выберите вид. Доступы можно включить сейчас или позже.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
-                Card(Modifier.fillMaxWidth()) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Как вам удобнее?", style = MaterialTheme.typography.titleMedium)
                         ModeChoice("Обычный", "Основные действия и понятные результаты.", interfaceMode == InterfaceMode.SIMPLE) { interfaceMode = InterfaceMode.SIMPLE }
@@ -102,7 +104,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
                 }
             }
             item {
-                Card(Modifier.fillMaxWidth()) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Для основных возможностей", style = MaterialTheme.typography.titleMedium)
                         SetupItem("Сигнал и сота", if (cellAccess) "Доступ к точному местоположению включён." else "Для сведений о соте нужно точное местоположение. Координаты не сохраняются.", cellAccess) {
@@ -121,7 +123,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
                 }
             }
             if (interfaceMode == InterfaceMode.EXPERT) item {
-                Card(Modifier.fillMaxWidth()) {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Дополнительно", style = MaterialTheme.typography.titleMedium)
                         val ready = shizukuStatus == ShizukuManager.Status.READY

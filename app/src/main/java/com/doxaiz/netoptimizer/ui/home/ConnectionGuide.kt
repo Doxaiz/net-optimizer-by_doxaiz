@@ -1,5 +1,7 @@
 package com.doxaiz.netoptimizer.ui.home
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -62,7 +64,7 @@ fun ConnectionGuide(hasDisplayableSignal: Boolean) {
             delay(3_000)
         }
     }
-    Card(Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Что проверить", style = MaterialTheme.typography.titleMedium)
             val current = readiness

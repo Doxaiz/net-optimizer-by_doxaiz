@@ -1,5 +1,6 @@
 package com.doxaiz.netoptimizer.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -193,7 +194,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                     Text(if (busy) "Проверяем…" else if (details) "Проверить связь и DNS" else "Проверить связь")
                 }
                 if (busy) {
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(when (checkPhase) {
                                 CheckPhase.CONNECTING -> "Подключаемся к сайту…"
@@ -208,7 +209,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                 }
                 if (checkPhase == CheckPhase.DONE) checkResult?.let { result ->
                     val summary = homeCheckSummary(result)
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("РЕЗУЛЬТАТ ПРОВЕРКИ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             Text(summary.headline, style = MaterialTheme.typography.headlineSmall,
@@ -224,7 +225,7 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
                     }
                 }
                 if (checkPhase == CheckPhase.ERROR || checkPhase == CheckPhase.CANCELLED) {
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                         Text(if (checkPhase == CheckPhase.CANCELLED) "Проверка остановлена." else errorText,
                             modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     }
