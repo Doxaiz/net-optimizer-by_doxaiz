@@ -11,8 +11,15 @@ if os.environ.get("AUDIT_DISPOSABLE_EMULATOR") != "yes" or len(sys.argv) != 2:
 def report_exception(kind, value, tb):
     import traceback
     traceback.print_exception(kind, value, tb)
-    # Make failures available as GitHub check annotations on isolated emulators.
-    print("::error::" + str(value).replace("\n", " ")[:1500], flush=True)
+    # Include the visible UI so CI failures can be distinguished from navigation regressions.
+    try:
+        visible = [(n.attrib.get("text"), n.attrib.get("content-desc")) for n in nodes()
+                   if n.attrib.get("text") or n.attrib.get("content-desc")]
+    except Exception:
+        visible = "unavailable"
+    frames = traceback.extract_tb(tb)
+    location = " -> ".join(f"{frame.name}:{frame.lineno}" for frame in frames)
+    print("::error::" + (str(value) + "; at: " + location + "; visible: " + repr(visible)).replace("\n", " ")[:3500], flush=True)
 
 
 sys.excepthook = report_exception
