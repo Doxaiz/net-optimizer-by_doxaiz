@@ -14,6 +14,7 @@ adb, install, start, tap, nodes = (h[k] for k in ("adb", "install", "start", "ta
 GOOD = "Android не сообщает об ограничениях сети."
 UNUSABLE = "Сеть сейчас непригодна для достоверного замера."
 REFRESH = "Обновить условия сети"
+NO_NETWORK = "Нет активной мобильной сети: Android не сообщает условия."
 
 
 def report_exception(kind, value, tb):
@@ -104,7 +105,7 @@ def open_conditions():
     reveal(REFRESH)
     # The conditions card sits above the speed test, so scan upwards from the button.
     scroll_top()
-    found = find_text(lambda t: t in (GOOD, UNUSABLE) or t.startswith("Замер возможен"), step=(.55, .92))
+    found = find_text(lambda t: t in (GOOD, UNUSABLE, NO_NETWORK) or t.startswith("Замер возможен"), step=(.55, .92))
     if found is None:
         raise RuntimeError("Network condition verdict not visible: " + repr(texts()))
     return found
@@ -119,15 +120,15 @@ try:
     adb("shell", "svc", "data", "enable")
     time.sleep(8)
     restored = adb("shell", "settings", "get", "global", "captive_portal_mode", check=False).strip()
-    adb("shell", "settings", "put", "global", "captive_portal_mode", "2")
 
-    # One emulator image keeps a validated cellular network, another keeps none: report which.
+    # Baseline first, with the emulator's own settings, then try to invalidate the network.
     first = open_conditions()
-    print("::notice::Initial network conditions state: " + first, flush=True)
-    if first == UNUSABLE:
-        print("::notice::No validated cellular network on this emulator; the unreliable-network card is shown but the transition is not verified.", flush=True)
+    print("::notice::Baseline network conditions state: " + first, flush=True)
+    if first == NO_NETWORK:
+        print("::notice::This emulator has no active cellular network, so the unreliable-network transition is not verifiable here; the card correctly states that Android reports no conditions.", flush=True)
     else:
-        deadline = time.monotonic() + 90
+        adb("shell", "settings", "put", "global", "captive_portal_mode", "2")
+        deadline = time.monotonic() + 120
         changed = None
         while time.monotonic() < deadline:
             reveal(REFRESH)
@@ -138,13 +139,13 @@ try:
             time.sleep(5)
         if changed is None:
             networks = adb("shell", "dumpsys", "connectivity", check=False)
-            print("::notice::Cellular network was never invalidated by the captive-portal probe; comparison guard not verified in UI. "
+            print("::notice::The network was never invalidated by the captive-portal probe; the comparison guard stays unverified in the UI. "
                   + "captive_portal_mode=" + adb("shell", "settings", "get", "global", "captive_portal_mode", check=False).strip()
-                  + "; validated=" + str("VALIDATED" in networks), flush=True)
+                  + "; VALIDATED present=" + str("VALIDATED" in networks), flush=True)
         else:
             if find_text(lambda t: t.startswith("Система обнаружила captive portal") or t.startswith("Android не подтвердил доступ")) is None:
                 raise RuntimeError("Unreliable network reason not shown: " + repr(texts()))
-            print("::notice::Invalid cellular network is reported in the UI after the failed validation probe", flush=True)
+            print("::notice::The UI reports an unusable cellular network after the failed validation probe", flush=True)
 finally:
     adb("shell", "settings", "put", "global", "captive_portal_mode", restored or "1", check=False)
     adb("shell", "svc", "wifi", "enable", check=False)
