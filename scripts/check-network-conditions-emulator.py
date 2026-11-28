@@ -75,14 +75,6 @@ def wait_text(predicate, timeout=25):
     raise RuntimeError("Expected text not visible: " + repr(texts()))
 
 
-def scroll_top():
-    w, ht = viewport()
-    for _ in range(4):
-        adb("shell", "input", "swipe", str(w // 2), str(int(ht * 0.30)), str(w // 2), str(int(ht * 0.85)), "300")
-        time.sleep(.5)
-    time.sleep(.5)
-
-
 def swipes(steps):
     w, ht = viewport()
     for start, end in steps:
@@ -90,14 +82,19 @@ def swipes(steps):
         time.sleep(.6)
 
 
-def find_text(predicate):
-    """Look for a line anywhere in the scrolling list, without tapping anything."""
-    for label, steps in (("down", [(.75, .45)] * 6), ("up", [(.35, .75)] * 10)):
-        for _ in range(len(steps)):
-            for text in texts():
-                if predicate(text):
-                    return text
-            swipes([steps[0]])
+def scroll_top():
+    # Start well inside the list: a swipe beginning over the fixed header does nothing.
+    swipes([(.55, .92)] * 10)
+    time.sleep(.5)
+
+
+def find_text(predicate, step=(.62, .40), attempts=12):
+    """Scroll one direction and look for a line anywhere in the list, without tapping."""
+    for _ in range(attempts):
+        for text in texts():
+            if predicate(text):
+                return text
+        swipes([step])
     return None
 
 
@@ -105,7 +102,9 @@ def open_conditions():
     tap("Инструменты")
     reveal("Замеры")
     reveal(REFRESH)
-    found = find_text(lambda t: t in (GOOD, UNUSABLE) or t.startswith("Замер возможен"))
+    # The conditions card sits above the speed test, so scan upwards from the button.
+    scroll_top()
+    found = find_text(lambda t: t in (GOOD, UNUSABLE) or t.startswith("Замер возможен"), step=(.55, .92))
     if found is None:
         raise RuntimeError("Network condition verdict not visible: " + repr(texts()))
     return found
