@@ -76,16 +76,17 @@ def wait_text(predicate, timeout=25):
     raise RuntimeError("Expected text not visible: " + repr(texts()))
 
 
-def swipes(steps):
+def swipes(steps, duration_ms=800):
+    # A slow drag scrolls predictably; a fast swipe turns into a fling and overshoots.
     w, ht = viewport()
     for start, end in steps:
-        adb("shell", "input", "swipe", str(w // 2), str(int(ht * start)), str(w // 2), str(int(ht * end)), "300")
-        time.sleep(.6)
+        adb("shell", "input", "swipe", str(w // 2), str(int(ht * start)), str(w // 2), str(int(ht * end)), str(duration_ms))
+        time.sleep(.7)
 
 
 def scroll_top():
-    # Start well inside the list: a swipe beginning over the fixed header does nothing.
-    swipes([(.55, .92)] * 10)
+    # Start well inside the list: a drag beginning over the fixed header does nothing.
+    swipes([(.30, .90)] * 8)
     time.sleep(.5)
 
 
@@ -105,7 +106,7 @@ def open_conditions():
     reveal(REFRESH)
     # The conditions card sits above the speed test, so scan upwards from the button.
     scroll_top()
-    found = find_text(lambda t: t in (GOOD, UNUSABLE, NO_NETWORK) or t.startswith("Замер возможен"), step=(.55, .92))
+    found = find_text(lambda t: t in (GOOD, UNUSABLE, NO_NETWORK) or t.startswith("Замер возможен"), step=(.30, .90))
     if found is None:
         raise RuntimeError("Network condition verdict not visible: " + repr(texts()))
     return found
