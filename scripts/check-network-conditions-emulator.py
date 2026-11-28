@@ -75,11 +75,20 @@ def wait_text(predicate, timeout=25):
     raise RuntimeError("Expected text not visible: " + repr(texts()))
 
 
+def scroll_top():
+    w, ht = viewport()
+    for _ in range(4):
+        adb("shell", "input", "swipe", str(w // 2), str(int(ht * 0.30)), str(w // 2), str(int(ht * 0.85)), "300")
+        time.sleep(.5)
+    time.sleep(.5)
+
+
 def open_conditions():
     tap("Инструменты")
     reveal("Замеры")
     reveal(REFRESH)
-    # The verdict may sit above the refresh button; scroll once to be sure both are visible.
+    # The verdict is the first line of the same card, sometimes just above the viewport.
+    scroll_top()
     return wait_text(lambda t: t in (GOOD, UNUSABLE) or t.startswith("Замер возможен"))
 
 
@@ -100,10 +109,11 @@ try:
     if first == UNUSABLE:
         print("::notice::No validated cellular network on this emulator; the unreliable-network card is shown but the transition is not verified.", flush=True)
     else:
-        reveal(REFRESH)
         deadline = time.monotonic() + 90
         changed = None
         while time.monotonic() < deadline:
+            reveal(REFRESH)
+            scroll_top()
             if UNUSABLE in texts():
                 changed = UNUSABLE
                 break
@@ -114,6 +124,7 @@ try:
                   + "captive_portal_mode=" + adb("shell", "settings", "get", "global", "captive_portal_mode", check=False).strip()
                   + "; validated=" + str("VALIDATED" in networks), flush=True)
         else:
+            scroll_top()
             wait_text(lambda t: t.startswith("Система обнаружила captive portal") or t.startswith("Android не подтвердил доступ"))
             print("::notice::Invalid cellular network is reported in the UI after the failed validation probe", flush=True)
 finally:
