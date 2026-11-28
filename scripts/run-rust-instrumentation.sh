@@ -22,7 +22,14 @@ tr -d '\r' < "$log" > "$log.clean"
 cat "$log.clean"
 if [[ $status -ne 0 ]] || ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$log.clean"; then
   # This runs only on disposable CI emulators, never on a user's device.
-  adb logcat -d -t 1000 'AndroidRuntime:E' 'libc:F' 'DEBUG:F' 'ActivityManager:E' '*:S' > "$log.crash" 2>&1 || true
+  echo "::error::Instrumentation failed for $test_class (adb status $status)"
+  {
+    echo "Test class: $test_class"
+    echo '--- Android crash buffer ---'
+    adb logcat -b crash -d || true
+    echo '--- Runtime and native crash messages ---'
+    adb logcat -d 'AndroidRuntime:E' 'libc:F' 'DEBUG:F' 'ActivityManager:E' '*:S' || true
+  } > "$log.crash" 2>&1
   python3 - "$log.clean" "$log.crash" <<'PY'
 from pathlib import Path
 import sys

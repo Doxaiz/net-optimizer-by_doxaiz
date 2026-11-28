@@ -12,11 +12,7 @@ def report_exception(kind, value, tb):
     import traceback
     traceback.print_exception(kind, value, tb)
     # Include the visible UI so CI failures can be distinguished from navigation regressions.
-    try:
-        visible = [(n.attrib.get("text"), n.attrib.get("content-desc")) for n in nodes()
-                   if n.attrib.get("text") or n.attrib.get("content-desc")]
-    except Exception:
-        visible = "unavailable"
+    visible = globals().get("failure_ui", "unavailable")
     frames = traceback.extract_tb(tb)
     location = " -> ".join(f"{frame.name}:{frame.lineno}" for frame in frames)
     print("::error::" + (str(value) + "; at: " + location + "; visible: " + repr(visible)).replace("\n", " ")[:3500], flush=True)
@@ -176,6 +172,14 @@ try:
     if status() != "Restrict background status: enabled":
         raise RuntimeError("Data Saver unexpectedly disabled")
     print("No Shizuku: cancel, unavailable baseline, return unchanged and real Android switch passed; before/after completed:", compared)
+except Exception:
+    # Snapshot before cleanup alters device state and potentially changes the UI.
+    try:
+        failure_ui = [{key: n.attrib.get(key) for key in ("text", "content-desc", "bounds", "package")}
+                      for n in nodes() if n.attrib.get("text") or n.attrib.get("content-desc")]
+    except Exception:
+        failure_ui = "unavailable"
+    raise
 finally:
     adb("shell", "cmd", "netpolicy", "set", "restrict-background", "false", check=False)
     adb("shell", "svc", "data", "enable", check=False)
