@@ -70,8 +70,31 @@ def wait_comparison(texts, timeout=100):
     raise RuntimeError("Comparison result not visible; current UI: " + repr([n.attrib.get("text") for n in nodes() if n.attrib.get("text")]))
 
 
+def tap_home_optimization():
+    # On compact screens the low-battery banner can push the button below the viewport.
+    for attempt in range(3):
+        try:
+            tap("Оптимизировать сеть")
+            return
+        except RuntimeError as error:
+            if str(error) != "UI element not found: Оптимизировать сеть" or attempt == 2:
+                raise
+            current = list(nodes())
+            if not any(n.attrib.get("text") in ("ГЛАВНАЯ", "Главная") for n in current):
+                raise
+            sizes = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in current]
+            sizes = [(int(m.group(1)), int(m.group(2))) for m in sizes if m]
+            if not sizes:
+                raise
+            width, height = max(sizes, key=lambda size: size[0] * size[1])
+            print("Home optimization button outside viewport; scrolling", flush=True)
+            adb("shell", "input", "swipe", str(width // 2), str(int(height * .75)),
+                str(width // 2), str(int(height * .45)), "500")
+            time.sleep(1)
+
+
 def open_optimization(compare=False):
-    tap("Оптимизировать сеть")
+    tap_home_optimization()
     verify("Оптимизировать сеть?")
     if compare:
         tap("Сравнить задержку до и после")
@@ -119,7 +142,7 @@ try:
     start()
     tap("Продолжить")
     # Cancellation does not open settings or change any system policy.
-    tap("Оптимизировать сеть")
+    tap_home_optimization()
     verify("Оптимизировать сеть?")
     tap("Отмена")
     if status() != "Restrict background status: disabled":
