@@ -191,7 +191,7 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit, interfaceMode: Interface
                                 Icon(tab.icon, contentDescription = if (measuring) "Сессии: идёт замер" else tab.title)
                             }
                         },
-                        label = { Text(tab.title, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 10.sp) }
+                        label = { Text(tab.title, maxLines = 1, softWrap = false, overflow = TextOverflow.Visible, fontSize = 9.sp) }
                     )
                 }
             }
