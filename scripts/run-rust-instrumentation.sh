@@ -27,6 +27,8 @@ if [[ $status -ne 0 ]] || ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$log.clean"; t
     echo "Test class: $test_class"
     echo '--- Android crash buffer ---'
     adb logcat -b crash -d || true
+    echo '--- Process termination and low-memory events ---'
+    adb logcat -b events -d -s 'am_proc_died:I' 'am_kill:I' 'am_low_memory:I' '*:S' | tail -n 50 || true
     echo '--- Runtime and native crash messages ---'
     adb logcat -d 'AndroidRuntime:E' 'libc:F' 'DEBUG:F' 'ActivityManager:E' '*:S' || true
   } > "$log.crash" 2>&1
