@@ -76,22 +76,41 @@ def wait_text(predicate, timeout=25):
     raise RuntimeError("Expected text not visible: " + repr(texts()))
 
 
+def scroll_box():
+    """Bounds of the scrollable list itself, so drags never start on the fixed header."""
+    boxes = []
+    for n in nodes():
+        if n.attrib.get("scrollable") != "true":
+            continue
+        m = re.fullmatch(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", n.attrib.get("bounds", ""))
+        if m:
+            x1, y1, x2, y2 = map(int, m.groups())
+            if x2 > x1 and y2 > y1:
+                boxes.append((x1, y1, x2, y2))
+    if not boxes:
+        w, ht = viewport()
+        return 0, int(ht * 0.25), w, int(ht * 0.95)
+    return max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+
+
 def swipes(steps, duration_ms=800):
-    # A slow drag scrolls predictably; a fast swipe turns into a fling and overshoots.
-    w, ht = viewport()
+    # A slow drag inside the list scrolls predictably; a fast swipe becomes a fling.
+    x1, y1, x2, y2 = scroll_box()
+    width, height = x2 - x1, y2 - y1
+    x = str(x1 + width // 2)
     for start, end in steps:
-        adb("shell", "input", "swipe", str(w // 2), str(int(ht * start)), str(w // 2), str(int(ht * end)), str(duration_ms))
+        adb("shell", "input", "swipe", x, str(y1 + int(height * start)), x,
+            str(y1 + int(height * end)), str(duration_ms))
         time.sleep(.7)
 
 
 def scroll_top():
-    # Start well inside the list: a drag beginning over the fixed header does nothing.
-    swipes([(.30, .90)] * 8)
+    swipes([(.20, .85)] * 8)
     time.sleep(.5)
 
 
-def find_text(predicate, step=(.62, .40), attempts=12):
-    """Scroll one direction and look for a line anywhere in the list, without tapping."""
+def find_text(predicate, step=(.20, .85), attempts=14):
+    """Drag the list and look for a line anywhere in it, without tapping."""
     for _ in range(attempts):
         for text in texts():
             if predicate(text):
@@ -106,7 +125,7 @@ def open_conditions():
     reveal(REFRESH)
     # The conditions card sits above the speed test, so scan upwards from the button.
     scroll_top()
-    found = find_text(lambda t: t in (GOOD, UNUSABLE, NO_NETWORK) or t.startswith("Замер возможен"), step=(.30, .90))
+    found = find_text(lambda t: t in (GOOD, UNUSABLE, NO_NETWORK) or t.startswith("Замер возможен"))
     if found is None:
         raise RuntimeError("Network condition verdict not visible: " + repr(texts()))
     return found
