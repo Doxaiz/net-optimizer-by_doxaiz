@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.shizuku.provider)
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation("androidx.test:runner:1.6.2")
     debugImplementation(libs.compose.ui.tooling)
