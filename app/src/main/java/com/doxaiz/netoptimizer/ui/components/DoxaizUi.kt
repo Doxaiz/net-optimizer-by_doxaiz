@@ -85,7 +85,7 @@ fun DoxaizCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = DoxaizStyle.CardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         border = BorderStroke(1.dp, accent?.copy(alpha = 0.35f) ?: MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
     ) {
         Column(Modifier.padding(contentPadding), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
