@@ -129,6 +129,7 @@ fun HeroPanel(
 
 enum class PillTone { GOOD, WARNING, BAD, NEUTRAL }
 
+@Composable
 private fun toneColor(tone: PillTone): Color = when (tone) {
     PillTone.GOOD -> AccentGreen
     PillTone.WARNING -> AccentCyan
