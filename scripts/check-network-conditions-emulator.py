@@ -83,13 +83,32 @@ def scroll_top():
     time.sleep(.5)
 
 
+def swipes(steps):
+    w, ht = viewport()
+    for start, end in steps:
+        adb("shell", "input", "swipe", str(w // 2), str(int(ht * start)), str(w // 2), str(int(ht * end)), "300")
+        time.sleep(.6)
+
+
+def find_text(predicate):
+    """Look for a line anywhere in the scrolling list, without tapping anything."""
+    for label, steps in (("down", [(.75, .45)] * 6), ("up", [(.35, .75)] * 10)):
+        for _ in range(len(steps)):
+            for text in texts():
+                if predicate(text):
+                    return text
+            swipes([steps[0]])
+    return None
+
+
 def open_conditions():
     tap("Инструменты")
     reveal("Замеры")
     reveal(REFRESH)
-    # The verdict is the first line of the same card, sometimes just above the viewport.
-    scroll_top()
-    return wait_text(lambda t: t in (GOOD, UNUSABLE) or t.startswith("Замер возможен"))
+    found = find_text(lambda t: t in (GOOD, UNUSABLE) or t.startswith("Замер возможен"))
+    if found is None:
+        raise RuntimeError("Network condition verdict not visible: " + repr(texts()))
+    return found
 
 
 adb("uninstall", h["PACKAGE"], check=False)
@@ -113,8 +132,8 @@ try:
         changed = None
         while time.monotonic() < deadline:
             reveal(REFRESH)
-            scroll_top()
-            if UNUSABLE in texts():
+            time.sleep(1)
+            if find_text(lambda t: t == UNUSABLE):
                 changed = UNUSABLE
                 break
             time.sleep(5)
@@ -124,8 +143,8 @@ try:
                   + "captive_portal_mode=" + adb("shell", "settings", "get", "global", "captive_portal_mode", check=False).strip()
                   + "; validated=" + str("VALIDATED" in networks), flush=True)
         else:
-            scroll_top()
-            wait_text(lambda t: t.startswith("Система обнаружила captive portal") or t.startswith("Android не подтвердил доступ"))
+            if find_text(lambda t: t.startswith("Система обнаружила captive portal") or t.startswith("Android не подтвердил доступ")) is None:
+                raise RuntimeError("Unreliable network reason not shown: " + repr(texts()))
             print("::notice::Invalid cellular network is reported in the UI after the failed validation probe", flush=True)
 finally:
     adb("shell", "settings", "put", "global", "captive_portal_mode", restored or "1", check=False)
