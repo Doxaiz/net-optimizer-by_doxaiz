@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.doxaiz.netoptimizer.ui.theme.AccentAmber
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentRed
@@ -132,7 +133,7 @@ enum class PillTone { GOOD, WARNING, BAD, NEUTRAL }
 @Composable
 private fun toneColor(tone: PillTone): Color = when (tone) {
     PillTone.GOOD -> AccentGreen
-    PillTone.WARNING -> AccentCyan
+    PillTone.WARNING -> AccentAmber
     PillTone.BAD -> AccentRed
     PillTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
 }
