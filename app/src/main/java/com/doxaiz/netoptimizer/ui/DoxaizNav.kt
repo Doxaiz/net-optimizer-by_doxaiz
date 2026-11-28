@@ -7,7 +7,18 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
@@ -63,6 +74,8 @@ import com.doxaiz.netoptimizer.ui.onboarding.OnboardingScreen
 import com.doxaiz.netoptimizer.ui.sessions.SessionsScreen
 import com.doxaiz.netoptimizer.ui.settings.SettingsScreen
 import com.doxaiz.netoptimizer.ui.theme.DoxaizThemeKind
+import com.doxaiz.netoptimizer.ui.theme.AccentCyan
+import com.doxaiz.netoptimizer.ui.theme.AccentViolet
 import com.doxaiz.netoptimizer.ui.tools.ToolsScreen
 import com.doxaiz.netoptimizer.ui.traffic.TrafficScreen
 
@@ -129,7 +142,30 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit, interfaceMode: Interface
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(title = { Text("Net Optimizer by Doxaiz") })
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(30.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Brush.linearGradient(listOf(AccentCyan, AccentViolet))),
+                                contentAlignment = Alignment.Center
+                            ) { Text("N", style = MaterialTheme.typography.titleSmall, color = Color.Black) }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("Net Optimizer", style = MaterialTheme.typography.titleMedium)
+                                Text("by Doxaiz", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Brush.horizontalGradient(listOf(AccentCyan.copy(alpha = .7f), AccentViolet.copy(alpha = .5f), Color.Transparent)))
+                )
                 val now = maxOf(batteryClock, SystemClock.elapsedRealtime())
                 val start = foregroundSince
                 if (BatteryHealth.isFresh(signal.batteryObservedAtMs, start, now)) {
@@ -142,7 +178,7 @@ fun DoxaizNav(onThemeChange: (DoxaizThemeKind) -> Unit, interfaceMode: Interface
             }
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                 tabs.forEachIndexed { index, tab ->
                     NavigationBarItem(
                         selected = selected == index,

@@ -31,6 +31,12 @@ import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentRed
 import com.doxaiz.netoptimizer.ui.theme.AccentViolet
+import com.doxaiz.netoptimizer.ui.components.DoxaizCard
+import com.doxaiz.netoptimizer.ui.components.HeroPanel
+import com.doxaiz.netoptimizer.ui.components.MetricTile
+import com.doxaiz.netoptimizer.ui.components.SectionHeader
+import com.doxaiz.netoptimizer.ui.components.StatusPill
+import com.doxaiz.netoptimizer.ui.components.PillTone
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -157,26 +163,33 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
 
     LazyColumn(state = listState, modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Text("ГЛАВНАЯ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            SectionHeader("ГЛАВНАЯ", "Состояние мобильного подключения и быстрая проверка")
         }
         item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            HeroPanel(
+                title = "МОБИЛЬНАЯ СЕТЬ",
+                value = if (validSignal) QualityText.signal(signal.rsrp) else "Сигнал недоступен",
+                caption = when {
+                    validSignal && freshness == SignalFreshnessStatus.UNKNOWN_MODEM_TIME -> "${signal.rsrp} дБм · возраст данных неизвестен"
+                    validSignal -> "${signal.rsrp} дБм · уровень сигнала, не скорость"
+                    else -> "Замеры работают и без данных о сигнале"
+                },
+                valueColor = if (validSignal) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                accent = if (validSignal) AccentCyan else MaterialTheme.colorScheme.outline
             ) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Мобильная сеть", style = MaterialTheme.typography.headlineSmall)
-                    Text(if (validSignal) "${QualityText.signal(signal.rsrp)} · ${signal.rsrp} дБм" else "Сигнал недоступен", style = MaterialTheme.typography.titleMedium)
-                    Text(if (validSignal && freshness == SignalFreshnessStatus.UNKNOWN_MODEM_TIME) "Возраст данных неизвестен" else if (validSignal) "Уровень сигнала, не скорость" else "Замеры работают и без данных о сигнале", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusPill(
+                        if (validSignal) "Сигнал получен" else "Нет данных о соте",
+                        if (validSignal) PillTone.GOOD else PillTone.NEUTRAL
+                    )
+                    StatusPill(signal.networkType, PillTone.NEUTRAL)
                 }
             }
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("Оптимизировать сеть") }
-                OutlinedButton(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = onOptimize, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Оптимизировать сеть", style = MaterialTheme.typography.titleMedium) }
+                OutlinedButton(onClick = { measure() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) {
                     Text(if (busy) "Проверяем…" else if (details) "Проверить связь и DNS" else "Проверить связь")
                 }
                 if (busy) {
@@ -236,14 +249,5 @@ fun HomeScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foreground
 }
 
 @Composable
-private fun MetricCard(title: String, value: String, desc: String, modifier: Modifier, valueColor: Color) {
-    Card(modifier = modifier) {
-        Column(Modifier.fillMaxWidth().defaultMinSize(minHeight = 124.dp).padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
-            Text(value, style = MaterialTheme.typography.titleMedium, color = valueColor)
-            Spacer(Modifier.height(4.dp))
-            Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
+private fun MetricCard(title: String, value: String, desc: String, modifier: Modifier, valueColor: Color) =
+    MetricTile(label = title, value = value, detail = desc, modifier = modifier, valueColor = valueColor)

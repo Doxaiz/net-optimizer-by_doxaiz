@@ -44,6 +44,10 @@ import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparisonReportBuilder
 import com.doxaiz.netoptimizer.core.net.NetworkConditionLevel
 import com.doxaiz.netoptimizer.core.net.NetworkConditionPolicy
 import com.doxaiz.netoptimizer.core.net.NetworkConditionReader
+import com.doxaiz.netoptimizer.ui.components.DoxaizCard
+import com.doxaiz.netoptimizer.ui.components.SectionHeader
+import com.doxaiz.netoptimizer.ui.components.StatusPill
+import com.doxaiz.netoptimizer.ui.components.PillTone
 import com.doxaiz.netoptimizer.core.net.NetworkConditions
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadComparison
 import com.doxaiz.netoptimizer.core.traffic.MobileLoadFailure
@@ -760,7 +764,7 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
 
     LazyColumn(modifier = modifier.fillMaxSize().padding(14.dp), state = trafficListState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Text("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SectionHeader("ТРАФИК · МОБИЛЬНАЯ СЕТЬ", "Нагрузка, история расхода и ручные ограничения")
             if (!expert) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Скрыть дополнительные действия" else "Показать дополнительные действия") }
         }
         item {
@@ -774,10 +778,13 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                 onDirectChange = { pendingDataSaver = it }, openDataSaver = { dataSaver.openSettings() })
         }
         item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("ТЕКУЩАЯ ПЕРЕДАЧА ДАННЫХ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (rate != null) "↓ ${formatRate(rate!!.rxBytesPerSecond)}  ·  ↑ ${formatRate(rate!!.txBytesPerSecond)}" else "Нет данных", style = MaterialTheme.typography.titleMedium, color = if (rate != null) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
+            DoxaizCard(accent = if (rate != null) AccentCyan else null) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("ТЕКУЩАЯ ПЕРЕДАЧА ДАННЫХ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        StatusPill(if (loadMeasuring) "Идёт замер" else if (rate != null) "Данные есть" else "Нет данных",
+                            if (loadMeasuring) PillTone.WARNING else if (rate != null) PillTone.GOOD else PillTone.NEUTRAL)
+                    }
+                    Text(if (rate != null) "↓ ${formatRate(rate!!.rxBytesPerSecond)}  ·  ↑ ${formatRate(rate!!.txBytesPerSecond)}" else "Нет данных", style = MaterialTheme.typography.headlineSmall, color = if (rate != null) AccentCyan else MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (details) "Общие счётчики мобильных интерфейсов Android, не скорость отдельных приложений. Первое значение появляется после двух снимков; раздача может учитываться по-разному." else "Общий мобильный трафик телефона, не отдельных приложений.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     networkVerdict?.let { verdict ->
                         Text(verdict.headline, style = MaterialTheme.typography.bodySmall,
@@ -842,13 +849,11 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         filter = "all"
                         scope.launch { trafficListState.scrollToItem(TRAFFIC_HISTORY_CARD_INDEX) }
                     }, enabled = !loadMeasuring, modifier = Modifier.fillMaxWidth()) { Text("История отдачи ↑") }
-                }
             }
         }
         item(key = "traffic-history") {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("РАСХОД МОБИЛЬНЫХ ДАННЫХ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            DoxaizCard {
+                    SectionHeader("РАСХОД МОБИЛЬНЫХ ДАННЫХ", "История, а не текущая активность")
                     Text("Сортировка истории: " + when (trafficSort) {
                         TrafficSort.TOTAL -> "общий расход"
                         TrafficSort.RECEIVED -> "скачивание"
@@ -888,7 +893,6 @@ fun TrafficScreen(modifier: Modifier = Modifier, expert: Boolean, optimizationRe
                         summary?.apps?.isEmpty() == true -> Text("За этот период данных пока нет или Android их ещё не обновил.", style = MaterialTheme.typography.bodySmall)
                     }
                     OutlinedButton(onClick = { refresh++ }, enabled = !loading, modifier = Modifier.fillMaxWidth()) { Text("Обновить статистику") }
-                }
             }
         }
         if (details) item {

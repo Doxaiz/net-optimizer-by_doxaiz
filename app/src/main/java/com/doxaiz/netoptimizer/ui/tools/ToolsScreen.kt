@@ -72,6 +72,9 @@ import com.doxaiz.netoptimizer.core.net.NetworkConditions
 import com.doxaiz.netoptimizer.ui.theme.AccentCyan
 import com.doxaiz.netoptimizer.ui.theme.AccentGreen
 import com.doxaiz.netoptimizer.ui.theme.AccentRed
+import com.doxaiz.netoptimizer.ui.components.DoxaizCard
+import com.doxaiz.netoptimizer.ui.components.StatusPill
+import com.doxaiz.netoptimizer.ui.components.PillTone
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -236,7 +239,7 @@ fun ToolsScreen(modifier: Modifier = Modifier, monitor: SignalMonitor, foregroun
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 14.dp)) {
         Spacer(Modifier.height(14.dp))
         Text("ИНСТРУМЕНТЫ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Text("Диагностика сети", style = MaterialTheme.typography.headlineSmall)
+        Text("Диагностика сети", style = MaterialTheme.typography.headlineMedium)
         Text("Замеры выполняются только через мобильное подключение.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -683,9 +686,29 @@ internal fun NetworkConditionsCardForTest(conditions: NetworkConditions, onRefre
 @Composable
 private fun NetworkConditionsCard(conditions: NetworkConditions?, onRefresh: () -> Unit) {
     val verdict = conditions?.let { NetworkConditionPolicy.verdict(it) }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("УСЛОВИЯ СЕТИ ПО ДАННЫМ ANDROID", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    DoxaizCard(accent = when (verdict?.level) {
+        NetworkConditionLevel.GOOD -> AccentGreen
+        NetworkConditionLevel.CAUTION -> MaterialTheme.colorScheme.primary
+        NetworkConditionLevel.UNUSABLE -> MaterialTheme.colorScheme.error
+        null -> null
+    }) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("УСЛОВИЯ СЕТИ ПО ДАННЫМ ANDROID", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                StatusPill(
+                    when (verdict?.level) {
+                        NetworkConditionLevel.GOOD -> "Норма"
+                        NetworkConditionLevel.CAUTION -> "Осторожно"
+                        NetworkConditionLevel.UNUSABLE -> "Непригодна"
+                        null -> "Нет сети"
+                    },
+                    when (verdict?.level) {
+                        NetworkConditionLevel.GOOD -> PillTone.GOOD
+                        NetworkConditionLevel.CAUTION -> PillTone.WARNING
+                        NetworkConditionLevel.UNUSABLE -> PillTone.BAD
+                        null -> PillTone.NEUTRAL
+                    }
+                )
+            }
             if (verdict == null) {
                 Text("Нет активной мобильной сети: Android не сообщает условия.", style = MaterialTheme.typography.bodyMedium)
             } else {
@@ -695,7 +718,6 @@ private fun NetworkConditionsCard(conditions: NetworkConditions?, onRefresh: () 
             }
             Text("Это флаги системы на момент последнего обновления, а не замер скорости, задержки или нагрузки от других приложений. Условия могут измениться в любой момент; приложение не переключает сеть и не меняет настройки.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Обновить условия сети") }
-        }
     }
 }
 
