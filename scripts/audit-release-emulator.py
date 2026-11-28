@@ -67,6 +67,29 @@ def tap(label):
     alive()
 
 
+def tap_scroll(label, anchor):
+    """Find an action on a scrollable screen without treating a missing action as success."""
+    for attempt in range(3):
+        try:
+            tap(label)
+            return
+        except RuntimeError as error:
+            if str(error) != "UI element not found: " + label or attempt == 2:
+                raise
+            current = list(nodes())
+            if not any(n.attrib.get("text") == anchor for n in current):
+                raise
+            sizes = [re.fullmatch(r"\[0,0\]\[(\d+),(\d+)\]", n.attrib.get("bounds", "")) for n in current]
+            sizes = [(int(m.group(1)), int(m.group(2))) for m in sizes if m]
+            if not sizes:
+                raise
+            width, height = max(sizes, key=lambda size: size[0] * size[1])
+            print("Action outside viewport; scrolling:", label, flush=True)
+            adb("shell", "input", "swipe", str(width // 2), str(int(height * .75)),
+                str(width // 2), str(int(height * .45)), "500")
+            time.sleep(1)
+
+
 def verify_screen(label):
     wait_node(label)
     print("Screen visible:", label)
